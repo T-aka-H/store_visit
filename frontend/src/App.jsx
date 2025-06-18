@@ -538,21 +538,21 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800 text-gray-100">
+    <div className="min-h-screen bg-gray-50 text-gray-800">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* ヘッダー */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 bg-clip-text text-transparent mb-4">
-            🏪 AI店舗視察アシスタント
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-700 mb-3">
+            🏪 店舗視察AI
           </h1>
-          <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
             音声録音で効率的な店舗視察を実現。AIが自動で音声を認識・分類し、ビジネスインサイトを生成します。
           </p>
         </div>
 
         {/* 店舗名入力 */}
-        <div className="mb-8">
-          <label className="block text-lg font-semibold text-gray-200 mb-3">
+        <div className="mb-6">
+          <label className="block text-base font-medium text-gray-700 mb-2">
             📍 視察店舗名
           </label>
           <input
@@ -560,28 +560,28 @@ function App() {
             value={storeName}
             onChange={(e) => setStoreName(e.target.value)}
             placeholder="例: イオン〇〇店、ドン・キホーテ〇〇店"
-            className="w-full px-6 py-4 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-800/70 text-gray-100 placeholder-gray-400 text-lg"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400"
           />
         </div>
 
         {/* コントロールボタン */}
-        <div className="flex flex-wrap gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
           <button
             onClick={isRecording ? stopRecording : startRecording}
             disabled={isProcessing}
-            className={`flex items-center gap-3 px-8 py-4 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl ${
+            className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 shadow-sm ${
               isRecording 
-                ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white hover:from-red-700 hover:to-pink-700' 
-                : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-700 hover:to-blue-700'
-            } ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+                ? 'bg-red-500 text-white hover:bg-red-600' 
+                : 'bg-blue-500 text-white hover:bg-blue-600'
+            } ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md'} min-h-[48px]`}
           >
-            {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
-            {isRecording ? '録音停止' : '録音開始'}
+            {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+            <span className="text-sm">{isRecording ? '録音停止' : '録音開始'}</span>
           </button>
           
-          <label className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-xl hover:scale-105">
+          <label className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md min-h-[48px]">
             <Upload size={20} />
-            音声ファイル
+            <span className="text-sm">音声ファイル</span>
             <input
               type="file"
               accept="audio/*"
@@ -593,45 +593,53 @@ function App() {
           
           <button
             onClick={() => setShowTextInput(!showTextInput)}
-            className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-xl hover:from-yellow-700 hover:to-orange-700 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-200 shadow-sm hover:shadow-md min-h-[48px]"
           >
             <MessageCircle size={20} />
-            テキスト入力
+            <span className="text-sm">テキスト入力</span>
           </button>
           
           <button
             onClick={clearData}
             disabled={isProcessing}
-            className="flex items-center gap-3 px-6 py-4 bg-slate-700 text-gray-300 rounded-xl hover:bg-slate-600 hover:text-white transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl hover:scale-105"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md min-h-[48px]"
           >
             <Trash2 size={20} />
-            データクリア
+            <span className="text-sm">データクリア</span>
           </button>
 
           <button
             onClick={exportToExcel}
             disabled={categories.every(cat => cat.items.length === 0) && !transcript.trim()}
-            className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md min-h-[48px]"
           >
             <Download size={20} />
-            Excel出力
+            <span className="text-sm">Excel出力</span>
+          </button>
+
+          <button
+            onClick={() => setShowAiFeatures(!showAiFeatures)}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all duration-200 shadow-sm hover:shadow-md min-h-[48px]"
+          >
+            <Brain size={20} />
+            <span className="text-sm">AI分析</span>
           </button>
         </div>
 
         {/* テキスト入力モード */}
         {showTextInput && (
-          <div className="mb-8 p-6 bg-slate-700/50 rounded-xl border border-slate-600">
-            <h3 className="text-lg font-semibold text-gray-200 mb-4">テキスト入力モード</h3>
+          <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <h3 className="text-base font-medium text-gray-700 mb-3">テキスト入力モード</h3>
             <textarea
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               placeholder="視察内容をテキストで入力してください..."
-              className="w-full h-32 px-4 py-3 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-800/70 text-gray-100 placeholder-gray-400 resize-none"
+              className="w-full h-32 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400 resize-none"
             />
             <button
               onClick={processTextInput}
               disabled={!textInput.trim() || isProcessing}
-              className="mt-4 px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 transition-all duration-200"
+              className="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 text-sm"
             >
               {isProcessing ? '処理中...' : 'テキストを分析'}
             </button>
@@ -640,10 +648,10 @@ function App() {
 
         {/* 処理状況表示 */}
         {(isRecording || isProcessing) && (
-          <div className="mb-8 p-6 bg-gradient-to-r from-blue-900/50 to-purple-900/50 rounded-xl border border-blue-500/30">
-            <div className="flex items-center gap-4">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
-              <span className="text-cyan-300 font-medium">
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="flex items-center gap-3">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+              <span className="text-blue-700 font-medium text-sm">
                 {isRecording ? '🎤 録音中... 録音停止ボタンを押して終了してください' : '🔄 音声を処理中... しばらくお待ちください'}
               </span>
             </div>
@@ -651,11 +659,11 @@ function App() {
         )}
 
         {/* カテゴリ別結果表示 */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
           {categories.map((category, index) => (
-            <div key={index} className="bg-slate-800/60 rounded-xl p-6 border border-slate-600 hover:border-slate-500 transition-all duration-200">
-              <h3 className="text-xl font-bold text-cyan-400 mb-4 flex items-center gap-2">
-                <span className="text-2xl">
+            <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
+              <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <span className="text-xl">
                   {category.name.includes('価格') ? '💰' : 
                    category.name.includes('売り場') ? '🏬' : 
                    category.name.includes('客層') ? '👥' : 
@@ -663,19 +671,19 @@ function App() {
                 </span>
                 {category.name}
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {category.items.length > 0 ? (
                   category.items.map((item, itemIndex) => (
-                    <div key={itemIndex} className="bg-slate-900/50 rounded-lg p-4 border-l-4 border-cyan-500">
-                      <p className="text-gray-200 leading-relaxed">{item.text}</p>
-                      <div className="mt-2 flex justify-between items-center text-xs text-gray-400">
+                    <div key={itemIndex} className="bg-gray-50 rounded-lg p-3 border-l-4 border-blue-400">
+                      <p className="text-gray-700 leading-relaxed text-sm">{item.text}</p>
+                      <div className="mt-2 flex justify-between items-center text-xs text-gray-500">
                         <span>信頼度: {Math.round(item.confidence * 100)}%</span>
                         <span>{item.timestamp}</span>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <p className="text-gray-400 italic text-center py-8">まだデータがありません</p>
+                  <p className="text-gray-400 italic text-center py-6 text-sm">まだデータがありません</p>
                 )}
               </div>
             </div>
@@ -684,12 +692,12 @@ function App() {
 
         {/* 音声ログ */}
         {transcript && (
-          <div className="mb-12">
-            <h2 className="text-2xl font-bold text-gray-200 mb-6 flex items-center gap-3">
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center gap-2">
               🎤 音声ログ
             </h2>
-            <div className="bg-slate-800/60 rounded-xl p-6 border border-slate-600">
-              <div className="whitespace-pre-wrap text-gray-200 leading-relaxed max-h-64 overflow-y-auto">
+            <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+              <div className="whitespace-pre-wrap text-gray-700 leading-relaxed max-h-64 overflow-y-auto text-sm">
                 {transcript}
               </div>
             </div>
@@ -697,38 +705,36 @@ function App() {
         )}
 
         {/* AI機能セクション */}
-        <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-xl p-8 border border-purple-500/30 mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-3xl font-bold text-transparent bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text">
-              🧠 AI分析機能
-            </h2>
-            <button
-              onClick={() => setShowAiFeatures(!showAiFeatures)}
-              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl hover:from-purple-700 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl"
-            >
-              {showAiFeatures ? '非表示' : '表示'}
-            </button>
-          </div>
+        {showAiFeatures && (
+          <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm mb-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-gray-700">
+                🧠 AI分析機能
+              </h2>
+              <button
+                onClick={() => setShowAiFeatures(false)}
+                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all duration-200 text-sm"
+              >
+                非表示
+              </button>
+            </div>
 
-          {showAiFeatures && (
-            <div className="space-y-8">
+            <div className="space-y-6">
               {/* インサイト生成 */}
               <div>
-                <div className="flex items-center gap-4 mb-4">
-                  <button
-                    onClick={generateInsights}
-                    disabled={isProcessing}
-                    className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
-                  >
-                    <Brain size={24} />
-                    {isProcessing ? 'AI分析中...' : 'ビジネスインサイト生成'}
-                  </button>
-                </div>
+                <button
+                  onClick={generateInsights}
+                  disabled={isProcessing}
+                  className="flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md"
+                >
+                  <Brain size={20} />
+                  {isProcessing ? 'AI分析中...' : 'ビジネスインサイト生成'}
+                </button>
 
                 {insights && (
-                  <div className="bg-slate-800/60 rounded-xl p-6 border border-emerald-500/30">
-                    <h3 className="text-xl font-bold text-emerald-400 mb-4">📊 AI分析結果</h3>
-                    <div className="whitespace-pre-wrap text-gray-200 leading-relaxed">
+                  <div className="mt-4 bg-emerald-50 rounded-lg p-4 border border-emerald-200">
+                    <h3 className="text-lg font-semibold text-emerald-700 mb-3">📊 AI分析結果</h3>
+                    <div className="whitespace-pre-wrap text-gray-700 leading-relaxed text-sm">
                       {insights}
                     </div>
                   </div>
@@ -737,20 +743,20 @@ function App() {
 
               {/* 質問応答 */}
               <div>
-                <h3 className="text-xl font-bold text-cyan-400 mb-4">💬 データに関する質問</h3>
-                <div className="flex gap-4 mb-4">
+                <h3 className="text-lg font-semibold text-gray-700 mb-3">💬 データに関する質問</h3>
+                <div className="flex gap-3 mb-4">
                   <input
                     type="text"
                     value={questionInput}
                     onChange={(e) => setQuestionInput(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && askQuestion()}
                     placeholder="例: この店舗の強みは何ですか？改善点は？"
-                    className="flex-1 px-6 py-4 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-800/70 text-gray-100 placeholder-gray-400"
+                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400"
                   />
                   <button
                     onClick={askQuestion}
                     disabled={!questionInput.trim() || isAnswering}
-                    className="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 transition-all duration-200 shadow-lg hover:shadow-xl"
+                    className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md whitespace-nowrap"
                   >
                     {isAnswering ? '回答中...' : '質問する'}
                   </button>
@@ -760,19 +766,19 @@ function App() {
                 {qaPairs.length > 0 && (
                   <div className="space-y-4">
                     {qaPairs.map((qa, index) => (
-                      <div key={index} className="bg-slate-800/60 rounded-xl p-6 border border-slate-600">
-                        <div className="mb-4">
-                          <div className="flex items-start gap-3 mb-2">
-                            <span className="text-cyan-400 font-semibold">❓ 質問:</span>
-                            <span className="text-gray-200">{qa.question}</span>
+                      <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="mb-3">
+                          <div className="flex items-start gap-2 mb-1">
+                            <span className="text-blue-600 font-medium text-sm">❓ 質問:</span>
+                            <span className="text-gray-700 text-sm">{qa.question}</span>
                           </div>
-                          <div className="text-xs text-gray-400">{qa.timestamp}</div>
+                          <div className="text-xs text-gray-500">{qa.timestamp}</div>
                         </div>
-                        <div className="border-l-4 border-emerald-500 pl-4">
-                          <div className="flex items-start gap-3 mb-2">
-                            <span className="text-emerald-400 font-semibold">💡 回答:</span>
+                        <div className="border-l-4 border-emerald-400 pl-3">
+                          <div className="flex items-start gap-2 mb-1">
+                            <span className="text-emerald-600 font-medium text-sm">💡 回答:</span>
                           </div>
-                          <div className="text-gray-200 leading-relaxed whitespace-pre-wrap">
+                          <div className="text-gray-700 leading-relaxed whitespace-pre-wrap text-sm">
                             {qa.answer}
                           </div>
                         </div>
@@ -782,12 +788,12 @@ function App() {
                 )}
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* フッター */}
-        <div className="text-center text-gray-400 pt-8 border-t border-slate-700">
-          <p>🚀 Powered by Gemini AI • 効率的な店舗視察をサポート</p>
+        <div className="text-center text-gray-500 pt-6 border-t border-gray-200">
+          <p className="text-sm">🚀 Powered by Gemini AI • 効率的な店舗視察をサポート</p>
         </div>
       </div>
     </div>
