@@ -39,7 +39,7 @@ const StoreInspectionApp = () => {
   const [newCategory, setNewCategory] = useState({ name: '', description: '' });
   const [isProcessing, setIsProcessing] = useState(false);
   const [audioChunks, setAudioChunks] = useState([]);
-  const [apiEndpoint, setApiEndpoint] = useState('https://store-visit-7cux.onrender.com/api/transcribe');
+  const [apiEndpoint, setApiEndpoint] = useState('/api/transcribe');
   const [aiInsights, setAiInsights] = useState('');
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
   const [questionInput, setQuestionInput] = useState('');
@@ -52,11 +52,40 @@ const StoreInspectionApp = () => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // モバイル対応のオーディオ制約
+      const constraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // モバイル用の追加設定
+          channelCount: 1,
+          sampleRate: 44100
+        }
+      };
+
+      // HTTPS確認
+      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        throw new Error('HTTPSが必要です。セキュアな接続でアクセスしてください。');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       
+      // モバイル対応のMIMEタイプ検出
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'audio/mp4';
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/wav';
+          }
+        }
+      }
+
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
+        mimeType: mimeType
       });
       mediaRecorderRef.current = mediaRecorder;
       
@@ -68,7 +97,7 @@ const StoreInspectionApp = () => {
       };
       
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        const audioBlob = new Blob(chunks, { type: mimeType });
         await processAudioWithBackend(audioBlob);
         setAudioChunks([]);
       };
@@ -78,7 +107,21 @@ const StoreInspectionApp = () => {
       setAudioChunks(chunks);
     } catch (error) {
       console.error('録音開始エラー:', error);
-      alert('マイクへのアクセスが許可されていません。');
+      
+      // より詳細なエラーメッセージ
+      let errorMessage = 'マイクアクセスに失敗しました。';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMessage = 'マイクの許可が必要です。ブラウザの設定でマイクアクセスを許可してください。';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = 'マイクが見つかりません。デバイスにマイクが接続されているか確認してください。';
+      } else if (error.name === 'NotSupportedError') {
+        errorMessage = 'このブラウザでは音声録音がサポートされていません。';
+      } else if (error.message.includes('HTTPS')) {
+        errorMessage = 'HTTPSが必要です。セキュアな接続でアクセスしてください。';
+      }
+      
+      alert(errorMessage);
     }
   };
 
@@ -306,7 +349,7 @@ const StoreInspectionApp = () => {
         transcript: transcript
       };
 
-      const response = await fetch('https://store-visit-7cux.onrender.com/api/generate-insights', {
+      const response = await fetch('/api/generate-insights', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -345,7 +388,7 @@ const StoreInspectionApp = () => {
         transcript: transcript
       };
 
-      const response = await fetch('https://store-visit-7cux.onrender.com/api/ask-question', {
+      const response = await fetch('/api/ask-question', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
