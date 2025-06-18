@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin } from 'lucide-react';
+import JSZip from 'jszip';
 
 // APIエンドポイントの設定
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
@@ -65,6 +66,148 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing })
   const [photos, setPhotos] = useState([]);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // 個別写真ダウンロード関数
+  const downloadPhoto = async (photo) => {
+    try {
+      // まずバックエンドAPIを試す
+      const response = await fetch(`${API_BASE_URL}/api/photos/${photo.id}/download`, {
+        method: 'GET',
+      });
+      
+      if (response.ok) {
+        // バックエンドAPIが成功した場合
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `store_visit_photo_${photo.id}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // クリーンアップ
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        return;
+      }
+    } catch (error) {
+      console.log('バックエンドAPI利用不可、フォールバックを使用:', error);
+    }
+    
+    // フォールバック: Base64画像を直接ダウンロード
+    try {
+      const link = document.createElement('a');
+      link.href = photo.base64;
+      
+      // ファイル名を生成（日時とカテゴリを含む）
+      const timestamp = new Date(photo.timestamp || Date.now())
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[T:]/g, '-');
+      const category = photo.category ? `_${photo.category}` : '';
+      link.download = `store_photo_${timestamp}${category}.jpg`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log('写真ダウンロード完了:', link.download);
+    } catch (fallbackError) {
+      console.error('フォールバックダウンロードエラー:', fallbackError);
+      alert('写真のダウンロードに失敗しました');
+    }
+  };
+
+  // 全写真一括ダウンロード関数
+  const downloadAllPhotos = async () => {
+    if (photos.length === 0) {
+      alert('ダウンロード可能な写真がありません');
+      return;
+    }
+
+    try {
+      const zip = new JSZip();
+      const photoFolder = zip.folder("store_photos");
+      
+      // 各写真をZIPに追加
+      photos.forEach((photo, index) => {
+        try {
+          // Base64データからバイナリデータを取得
+          const base64Data = photo.base64.split(',')[1];
+          
+          // ファイル名生成
+          const timestamp = new Date(photo.timestamp || Date.now())
+            .toISOString()
+            .slice(0, 19)
+            .replace(/[T:]/g, '-');
+          const category = photo.category ? `_${photo.category}` : '';
+          const fileName = `photo_${String(index + 1).padStart(3, '0')}_${timestamp}${category}.jpg`;
+          
+          photoFolder.file(fileName, base64Data, {base64: true});
+          
+          // メタデータファイルも追加
+          const metadata = {
+            originalTimestamp: photo.timestamp,
+            category: photo.category,
+            description: photo.description,
+            confidence: photo.confidence,
+            analysis: photo.analysis
+          };
+          photoFolder.file(`${fileName}.json`, JSON.stringify(metadata, null, 2));
+          
+        } catch (error) {
+          console.error(`写真 ${index + 1} の処理エラー:`, error);
+        }
+      });
+      
+      // レポート情報も追加
+      const reportData = {
+        storeName: storeName || '未設定',
+        exportDate: new Date().toISOString(),
+        totalPhotos: photos.length,
+        categories: categories.map(cat => ({
+          name: cat.name,
+          itemCount: cat.items.length
+        })),
+        photos: photos.map((photo, index) => ({
+          index: index + 1,
+          timestamp: photo.timestamp,
+          category: photo.category,
+          description: photo.description,
+          confidence: photo.confidence
+        }))
+      };
+      
+      zip.file("report.json", JSON.stringify(reportData, null, 2));
+      
+      // ZIPファイル生成とダウンロード
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 }
+      });
+      
+      const url = window.URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // ZIPファイル名生成
+      const exportDate = new Date().toISOString().slice(0, 10);
+      const storeNameSafe = (storeName || 'unknown').replace(/[^a-zA-Z0-9\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '_');
+      link.download = `store_photos_${storeNameSafe}_${exportDate}.zip`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert(`${photos.length}枚の写真をZIPファイルでダウンロードしました！`);
+      
+    } catch (error) {
+      console.error('一括ダウンロードエラー:', error);
+      alert('写真の一括ダウンロードに失敗しました: ' + error.message);
+    }
+  };
 
   // iPhone向け写真撮影（ネイティブカメラ起動）
   const capturePhoto = () => {
@@ -251,16 +394,31 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing })
             </span>
           )}
         </h2>
-        <button
-          onClick={capturePhoto}
-          disabled={isAnalyzing || isProcessing}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
-        >
-          <Camera size={16} />
-          <span className="text-sm font-medium">
-            {isAnalyzing ? '解析中...' : '写真撮影'}
-          </span>
-        </button>
+        <div className="flex gap-2">
+          {/* 一括ダウンロードボタン */}
+          {photos.length > 0 && (
+            <button
+              onClick={downloadAllPhotos}
+              disabled={isAnalyzing || isProcessing}
+              className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200 text-sm"
+              title={`${photos.length}枚の写真をZIPでダウンロード`}
+            >
+              <Download size={14} />
+              <span className="font-medium">全写真DL</span>
+            </button>
+          )}
+          {/* 写真撮影ボタン */}
+          <button
+            onClick={capturePhoto}
+            disabled={isAnalyzing || isProcessing}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
+          >
+            <Camera size={16} />
+            <span className="text-sm font-medium">
+              {isAnalyzing ? '解析中...' : '写真撮影'}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* 解析中インジケーター */}
@@ -275,63 +433,47 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing })
         </div>
       )}
 
-      {/* 写真一覧 */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-        {photos.length > 0 ? (
-          <div className="p-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {photos.map((photo) => (
-                <div key={photo.id} className="relative group">
-                  <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
-                    <img
-                      src={photo.base64}
-                      alt={photo.description}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
-                      <div className="opacity-0 group-hover:opacity-100 flex gap-2">
-                        <button
-                          onClick={() => setSelectedPhoto(photo)}
-                          className="p-2 bg-white bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
-                        >
-                          <Eye size={16} className="text-gray-700" />
-                        </button>
-                        <button
-                          onClick={() => removePhoto(photo.id)}
-                          className="p-2 bg-red-500 bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
-                        >
-                          <X size={16} className="text-white" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* 写真情報 */}
-                  <div className="mt-2 text-xs text-gray-600">
-                    <div className="flex items-center gap-1 mb-1">
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-400"></span>
-                      <span className="font-medium">{photo.category}</span>
-                    </div>
-                    <div className="text-gray-500">
-                      {photo.timestamp.split(' ')[1]}
-                    </div>
-                    {photo.analysis?.confidence && (
-                      <div className="text-blue-600">
-                        信頼度: {Math.round(photo.analysis.confidence * 100)}%
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+      {/* 写真グリッド */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        {photos.map(photo => (
+          <div key={photo.id} className="relative group">
+            <img
+              src={photo.base64}
+              alt={photo.description}
+              className="w-full aspect-square object-cover rounded-lg"
+            />
+            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
+              <div className="opacity-0 group-hover:opacity-100 flex gap-2">
+                {/* 詳細表示ボタン */}
+                <button
+                  onClick={() => setSelectedPhoto(photo)}
+                  className="p-2 bg-white bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
+                  title="詳細表示"
+                >
+                  <Eye size={16} className="text-gray-700" />
+                </button>
+                
+                {/* ダウンロードボタン */}
+                <button
+                  onClick={() => downloadPhoto(photo)}
+                  className="p-2 bg-green-500 bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
+                  title="この写真をダウンロード"
+                >
+                  <Download size={16} className="text-white" />
+                </button>
+                
+                {/* 削除ボタン */}
+                <button
+                  onClick={() => removePhoto(photo.id)}
+                  className="p-2 bg-red-500 bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
+                  title="削除"
+                >
+                  <X size={16} className="text-white" />
+                </button>
+              </div>
             </div>
           </div>
-        ) : (
-          <div className="p-8 text-center text-gray-400">
-            <Camera size={48} className="mx-auto mb-3 opacity-50" />
-            <p>まだ写真がありません</p>
-            <p className="text-sm mt-1">「写真撮影」ボタンでiPhoneカメラが起動します</p>
-          </div>
-        )}
+        ))}
       </div>
 
       {/* 写真詳細モーダル */}
@@ -341,12 +483,23 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing })
             <div className="p-4">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">写真詳細</h3>
-                <button
-                  onClick={() => setSelectedPhoto(null)}
-                  className="p-2 hover:bg-gray-100 rounded-full"
-                >
-                  <X size={20} />
-                </button>
+                <div className="flex gap-2">
+                  {/* ダウンロードボタン */}
+                  <button
+                    onClick={() => downloadPhoto(selectedPhoto)}
+                    className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-all"
+                    title="ダウンロード"
+                  >
+                    <Download size={20} />
+                  </button>
+                  {/* 閉じるボタン */}
+                  <button
+                    onClick={() => setSelectedPhoto(null)}
+                    className="p-2 hover:bg-gray-100 rounded-full"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
               </div>
               
               <img
@@ -355,39 +508,38 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing })
                 className="w-full rounded-lg mb-4"
               />
               
-              <div className="space-y-3 text-sm">
+              <div className="space-y-3">
                 <div>
-                  <span className="font-medium text-gray-700">カテゴリ:</span>
-                  <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                  <h4 className="font-medium text-gray-700">撮影日時</h4>
+                  <p className="text-sm text-gray-600">
+                    {new Date(selectedPhoto.timestamp).toLocaleString()}
+                  </p>
+                </div>
+                
+                <div>
+                  <h4 className="font-medium text-gray-700">分類</h4>
+                  <p className="text-sm text-gray-600">
                     {selectedPhoto.category}
-                  </span>
+                  </p>
                 </div>
                 
                 <div>
-                  <span className="font-medium text-gray-700">AI分析結果:</span>
-                  <p className="mt-1 text-gray-600">{selectedPhoto.description}</p>
-                </div>
-                
-                <div>
-                  <span className="font-medium text-gray-700">撮影日時:</span>
-                  <span className="ml-2 text-gray-600">{selectedPhoto.timestamp}</span>
-                </div>
-                
-                <div>
-                  <span className="font-medium text-gray-700">ファイルサイズ:</span>
-                  <span className="ml-2 text-gray-600">{formatFileSize(selectedPhoto.size)}</span>
+                  <h4 className="font-medium text-gray-700">説明</h4>
+                  <p className="text-sm text-gray-600">
+                    {selectedPhoto.description}
+                  </p>
                 </div>
                 
                 {selectedPhoto.metadata?.location && (
                   <div>
-                    <span className="font-medium text-gray-700 flex items-center gap-1">
-                      <MapPin size={14} />
-                      位置情報:
-                    </span>
-                    <span className="ml-2 text-gray-600 text-xs">
-                      {selectedPhoto.metadata.location.lat}, {selectedPhoto.metadata.location.lng}
-                      (精度: ±{selectedPhoto.metadata.location.accuracy}m)
-                    </span>
+                    <h4 className="font-medium text-gray-700">位置情報</h4>
+                    <p className="text-sm text-gray-600">
+                      緯度: {selectedPhoto.metadata.location.lat}
+                      <br />
+                      経度: {selectedPhoto.metadata.location.lng}
+                      <br />
+                      精度: {selectedPhoto.metadata.location.accuracy}m
+                    </p>
                   </div>
                 )}
               </div>
