@@ -535,10 +535,9 @@ app.post('/api/classify-context', async (req, res) => {
       return res.status(400).json({ error: 'テキストが必要です' });
     }
 
-    // まずキーワードベース分類を実行
-    let classifications = performKeywordBasedClassification(text);
+    let classifications = [];
     
-    // Gemini APIが利用可能な場合は追加で実行
+    // Gemini APIを優先的に使用
     if (process.env.GEMINI_API_KEY) {
       try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -569,14 +568,11 @@ app.post('/api/classify-context', async (req, res) => {
           if (jsonMatch) {
             const jsonArray = JSON.parse(jsonMatch[0]);
             if (Array.isArray(jsonArray)) {
-              const geminiClassifications = jsonArray.filter(item => 
+              classifications = jsonArray.filter(item => 
                 item.category && 
                 item.text && 
                 categories.some(cat => cat.name === item.category)
               );
-              
-              // Geminiの結果をマージ
-              classifications = [...classifications, ...geminiClassifications];
             }
           }
         } catch (parseError) {
@@ -585,6 +581,12 @@ app.post('/api/classify-context', async (req, res) => {
       } catch (geminiError) {
         console.error('Gemini API エラー:', geminiError);
       }
+    }
+
+    // Gemini APIが失敗した場合のみ、キーワードベース分類を使用
+    if (classifications.length === 0) {
+      console.log('Gemini分類失敗、キーワードベース分類を使用');
+      classifications = performKeywordBasedClassification(text);
     }
 
     // 重複除去
@@ -602,10 +604,9 @@ app.post('/api/classify-context', async (req, res) => {
 
     console.log('最終分類結果:', uniqueClassifications);
 
-    // レスポンスのキー名を統一
+    // 信頼度を含む詳細な分類結果のみを返す
     res.json({ 
-      classifications: uniqueClassifications,
-      count: uniqueClassifications.length
+      classifications: uniqueClassifications
     });
 
   } catch (error) {
