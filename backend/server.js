@@ -453,135 +453,391 @@ const photoStorage = {
   }
 };
 
-// 音声認識・分類API（新規追加）
-app.post('/api/speech-to-text', upload.single('audio'), async (req, res) => {
+// 音声認識・分類API（ブラウザベース + Geminiバックアップ）
+app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     console.log('=== 音声認識開始 ===');
     
-    if (!req.file) {
-      return res.status(400).json({ error: '音声ファイルが必要です' });
+    // ブラウザからの音声認識テキストを確認
+    const browserTranscript = req.body.transcript;
+    
+    if (browserTranscript && browserTranscript.trim()) {
+      console.log('ブラウザ音声認識結果:', browserTranscript);
+      
+      // 改善されたキーワードベース分類を使用
+      const categorizedItems = performKeywordBasedClassification(browserTranscript);
+
+      // 店舗名の抽出
+      const storeNameMatch = browserTranscript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+      const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+      // CSV形式のデータを生成
+      const csvData = convertToCSVFormat(categorizedItems, storeName);
+
+      return res.json({
+        transcript: browserTranscript,
+        categorized_items: categorizedItems,
+        csv_format: {
+          headers: csvData.headers,
+          row: csvData.row
+        },
+        source: 'browser'
+      });
     }
 
-    const audioBuffer = req.file.buffer;
-    const audioBase64 = bufferToBase64(audioBuffer);
+    // ブラウザでの音声認識が失敗した場合、Geminiをバックアップとして使用
+    if (!req.file) {
+      return res.status(400).json({ error: '音声ファイルまたはテキストが必要です' });
+    }
 
-    // Gemini APIで音声認識
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    
-    // 音声認識プロンプト
-    const transcriptPrompt = `
-以下の音声を日本語のテキストに変換してください。
-店舗視察に関する内容です。
-
-音声データ（Base64）: ${audioBase64.substring(0, 100)}...
-
-テキストのみを返してください。
-`;
-
-    const result = await model.generateContent(transcriptPrompt);
-    const response = await result.response;
-    const transcribedText = response.text().trim();
-
-    console.log('音声認識結果:', transcribedText);
-
-    res.json({
-      transcribedText: transcribedText,
-      audioInfo: {
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        duration: null // 音声の長さは別途計算が必要
-      }
+    console.log('=== Geminiバックアップ処理開始 ===');
+    console.log('ファイル情報:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
     });
 
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const base64Audio = bufferToBase64(req.file.buffer);
+
+      const prompt = `あなたは小売店舗の視察データを分析する専門家です。
+以下の音声ファイルは店舗視察時の録音データです。以下の手順で分析してください：
+
+1. 音声の文字起こし
+- 日本語で正確に文字起こしを行ってください
+- 聞き取れない場合は「音声が不明瞭でした」と回答してください
+- 話者の口調や感情も可能な限り反映してください
+
+2. 内容の分類
+以下のカテゴリに関連する情報を抽出し、分類してください：
+
+価格情報:
+- 商品の価格、値段
+- セール、割引情報
+- 競合との価格比較
+- コスト関連の言及
+
+売り場情報:
+- 店舗レイアウト
+- 商品の陳列方法
+- 通路、棚の配置
+- 売り場の使い方
+
+客層・混雑度:
+- 来店客の特徴
+- 年齢層、性別
+- 混雑状況
+- 客数、客の動き
+
+商品・品揃え:
+- 取扱商品の種類
+- 品切れ、在庫状況
+- 商品の特徴
+- 品揃えの傾向
+
+店舗環境:
+- 店舗の雰囲気
+- 清潔さ、照明
+- 温度、空調
+- BGM、騒音レベル
+
+以下のJSON形式で回答してください：
+{
+  "transcript": "文字起こしの内容をここに記載",
+  "categories": [
+    {
+      "category": "カテゴリ名",
+      "text": "該当する発言内容",
+      "confidence": 0.8  // 0.1-1.0の範囲で確信度を設定
+    }
+  ]
+}
+
+音声が不明瞭な場合でも、聞き取れた部分から最大限の情報抽出を試みてください。`;
+
+      const result = await model.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: req.file.mimetype,
+            data: base64Audio
+          }
+        }
+      ]);
+
+      const response = await result.response;
+      const content = response.text().trim();
+
+      console.log('Geminiバックアップ成功:', content);
+
+      try {
+        // JSONレスポースのパース
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        let parsedResponse = {
+          transcript: '音声認識に失敗しました',
+          categories: []
+        };
+
+        if (jsonMatch) {
+          const jsonContent = JSON.parse(jsonMatch[0]);
+          parsedResponse = {
+            transcript: jsonContent.transcript || '音声認識に失敗しました',
+            categories: jsonContent.categories || []
+          };
+        }
+
+        // 改善されたキーワードベース分類を追加実行
+        const additionalClassifications = performKeywordBasedClassification(parsedResponse.transcript);
+        const allClassifications = [...(parsedResponse.categories || []), ...additionalClassifications];
+
+        console.log('分類結果:', allClassifications);
+
+        // 店舗名の抽出
+        const storeNameMatch = parsedResponse.transcript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+        const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+        // CSV形式のデータを生成
+        const csvData = convertToCSVFormat(allClassifications, storeName);
+
+        res.json({
+          transcript: parsedResponse.transcript,
+          categorized_items: allClassifications,
+          csv_format: {
+            headers: csvData.headers,
+            row: csvData.row
+          },
+          source: 'gemini'
+        });
+
+      } catch (parseError) {
+        console.error('Geminiレスポースのパースエラー:', parseError);
+        
+        // パースに失敗した場合は、テキスト全体を transcript として扱う
+        const categorizedItems = performKeywordBasedClassification(content);
+
+        // 店舗名の抽出
+        const storeNameMatch = content.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+        const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+        // CSV形式のデータを生成
+        const csvData = convertToCSVFormat(categorizedItems, storeName);
+
+        res.json({
+          transcript: content,
+          categorized_items: categorizedItems,
+          csv_format: {
+            headers: csvData.headers,
+            row: csvData.row
+          },
+          source: 'gemini_fallback'
+        });
+      }
+
+    } catch (geminiError) {
+      console.error('Geminiバックアップ失敗:', geminiError);
+      
+      res.status(500).json({
+        error: '音声認識エラー',
+        transcript: `音声認識に失敗しました: ${geminiError.message}`,
+        categorized_items: [],
+        csv_format: {
+          headers: [],
+          row: {}
+        }
+      });
+    }
+
   } catch (error) {
-    console.error('音声認識エラー:', error);
+    console.error('=== 全体エラー ===');
+    console.error('エラー名:', error.name);
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
+    console.error('=== エラー終了 ===');
+    
     res.status(500).json({
-      error: '音声認識中にエラーが発生しました',
-      details: error.message
+      error: '処理エラー',
+      details: error.message,
+      categorized_items: [],
+      csv_format: {
+        headers: [],
+        row: {}
+      }
     });
   }
 });
 
-// テキスト分類API（新規追加）
-app.post('/api/classify-text', async (req, res) => {
+// AI文脈理解による分類API（完全改善版）
+app.post('/api/classify-context', async (req, res) => {
   try {
-    console.log('=== テキスト分類開始 ===');
-    
-    const { text } = req.body;
-    
-    if (!text) {
+    console.log('=== AI文脈分類リクエスト受信 ===');
+    const { text, categories } = req.body;
+
+    if (!text || !text.trim()) {
       return res.status(400).json({ error: 'テキストが必要です' });
     }
 
-    console.log('分類対象テキスト:', text);
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY が設定されていません');
+      return res.status(500).json({ error: 'API設定エラー' });
+    }
 
-    // キーワードベース分類
-    const keywordClassifications = performKeywordBasedClassification(text);
-    console.log('キーワード分類結果:', keywordClassifications);
-
-    // Gemini APIで高度な分類
     const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    const fullPrompt = SPEECH_CLASSIFICATION_PROMPT + text;
-    
+
+    // 改善されたプロンプト
+    const categoriesText = categories.map(cat => cat.name).join(', ');
+
+    const prompt = `あなたは店舗視察データの分析エキスパートです。以下のテキストから複数の情報要素を抽出し、それぞれを適切なカテゴリに分類してください。
+
+テキスト: "${text.trim()}"
+
+利用可能なカテゴリ: ${categoriesText}
+
+分析ルール:
+1. テキスト内の異なる情報要素（価格、商品、サービス、環境など）を個別に識別する
+2. 各情報要素を最も適切なカテゴリに分類する
+3. 一つのテキストから複数の分類結果を抽出することが重要
+4. 価格情報は商品名と価格をセットで抽出する
+5. サービス情報、店舗環境情報なども個別に抽出する
+6. 店舗名、立地情報も個別に抽出する
+
+以下のJSON配列形式で回答してください（複数の分類結果を含めること）:
+
+[
+  {
+    "category": "価格情報",
+    "text": "トマト28円",
+    "confidence": 0.9,
+    "reason": "商品価格の明確な記載"
+  },
+  {
+    "category": "価格情報", 
+    "text": "ネギ29円",
+    "confidence": 0.9,
+    "reason": "商品価格の明確な記載"
+  },
+  {
+    "category": "店舗環境",
+    "text": "非常に大きなお店",
+    "confidence": 0.8,
+    "reason": "店舗規模に関する情報"
+  },
+  {
+    "category": "店舗環境",
+    "text": "案内係というサービスがあります",
+    "confidence": 0.8,
+    "reason": "店舗サービスに関する情報"
+  }
+]
+
+重要: 一つのテキストから複数の異なる情報要素を必ず抽出してください。価格、サービス、環境などの情報が混在している場合は、それぞれを個別の分類結果として出力してください。JSON配列で複数の結果を返すことが必須です。`;
+
     try {
-      const result = await model.generateContent(fullPrompt);
+      console.log('文章を分析中:', text.substring(0, 100) + '...');
+      
+      const result = await model.generateContent(prompt);
       const response = await result.response;
       const content = response.text().trim();
-      
-      console.log('Gemini API応答:', content);
 
-      // JSONの抽出を改善
-      let aiClassifications = [];
-      let aiSummary = '';
-      
+      console.log('Gemini応答:', content);
+
+      let classifications = [];
+
       try {
-        // JSONブロックを抽出
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        // JSON配列の抽出を試みる
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
-          const jsonData = JSON.parse(jsonMatch[0]);
-          aiClassifications = jsonData.classifications || [];
-          aiSummary = jsonData.summary || '';
-        } else {
-          console.log('JSONが見つからない、キーワード分類のみ使用');
+          const jsonArray = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(jsonArray)) {
+            classifications = jsonArray.filter(item => 
+              item.category && 
+              item.text && 
+              categories.some(cat => cat.name === item.category)
+            );
+            console.log('AI分類成功。結果数:', classifications.length);
+          }
         }
       } catch (parseError) {
-        console.log('JSON解析エラー、キーワード分類のみ使用:', parseError.message);
+        console.error('JSONパースエラー:', parseError.message);
+        
+        // パースに失敗した場合、単一オブジェクトとして解析を試みる
+        try {
+          const singleJsonMatch = content.match(/\{[\s\S]*\}/);
+          if (singleJsonMatch) {
+            const singleResult = JSON.parse(singleJsonMatch[0]);
+            if (singleResult.category && singleResult.text && 
+                categories.some(cat => cat.name === singleResult.category)) {
+              classifications = [singleResult];
+              console.log('単一オブジェクト分類成功');
+            }
+          }
+        } catch (singleParseError) {
+          console.error('単一JSONパースも失敗:', singleParseError.message);
+        }
       }
 
-      // キーワード分類とAI分類を結合
-      const allClassifications = [...keywordClassifications, ...aiClassifications];
-      
-      // 重複を除去
-      const uniqueClassifications = allClassifications.filter((item, index, self) => 
-        index === self.findIndex(t => t.text === item.text && t.category === item.category)
-      );
+      // フォールバック: 改善されたキーワードベース分類
+      if (classifications.length === 0) {
+        console.log('AIによる分類が失敗、改善されたフォールバック分類を実行');
+        classifications = performKeywordBasedClassification(text);
+      }
 
-      res.json({
-        classifications: uniqueClassifications,
-        summary: aiSummary,
-        method: 'hybrid',
-        keywordCount: keywordClassifications.length,
-        aiCount: aiClassifications.length
+      // 重複除去（同じカテゴリの類似テキストを統合）
+      const uniqueClassifications = [];
+      classifications.forEach(item => {
+        const existing = uniqueClassifications.find(existing => 
+          existing.category === item.category && 
+          existing.text.includes(item.text.substring(0, 10))
+        );
+        
+        if (!existing) {
+          uniqueClassifications.push(item);
+        }
       });
 
-    } catch (geminiError) {
-      console.log('Gemini API エラー、キーワード分類のみ使用:', geminiError.message);
+      console.log('分類完了。最終結果数:', uniqueClassifications.length);
+
+      // 店舗名の抽出
+      const storeNameMatch = text.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+      const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+      // CSV形式のデータを生成
+      const csvData = convertToCSVFormat(uniqueClassifications, storeName);
+
+      res.json({ 
+        classifications: uniqueClassifications,
+        csv_format: {
+          headers: csvData.headers,
+          row: csvData.row
+        }
+      });
+
+    } catch (error) {
+      console.error('AI分類中にエラー:', error.message);
       
-      // Gemini APIが失敗した場合、キーワード分類のみを返す
-      res.json({
-        classifications: keywordClassifications,
-        summary: 'キーワードベース分類のみ実行',
-        method: 'keyword-only',
-        keywordCount: keywordClassifications.length,
-        aiCount: 0
+      // エラー時のフォールバック
+      const fallbackClassifications = performKeywordBasedClassification(text);
+      const csvData = convertToCSVFormat(fallbackClassifications);
+      
+      res.json({ 
+        classifications: fallbackClassifications,
+        csv_format: {
+          headers: csvData.headers,
+          row: csvData.row
+        }
       });
     }
 
   } catch (error) {
-    console.error('テキスト分類エラー:', error);
+    console.error('AI文脈分類エラー:', error);
     res.status(500).json({
-      error: 'テキスト分類中にエラーが発生しました',
-      details: error.message
+      error: 'エラー',
+      details: error.message,
+      classifications: [],
+      csv_format: {
+        headers: [],
+        row: {}
+      }
     });
   }
 });
