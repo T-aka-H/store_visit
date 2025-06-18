@@ -139,21 +139,34 @@ const StoreInspectionApp = () => {
     setIsProcessing(true);
     
     try {
+      console.log('音声ファイル情報:', {
+        size: audioBlob.size,
+        type: audioBlob.type
+      });
+
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
       formData.append('categories', JSON.stringify(categories));
       
+      console.log('APIエンドポイント:', apiEndpoint);
+      console.log('送信するカテゴリ数:', categories.length);
+
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         body: formData
       });
 
+      console.log('レスポンスステータス:', response.status);
+      console.log('レスポンスヘッダー:', Object.fromEntries(response.headers.entries()));
+
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('APIエラーレスポンス:', errorText);
         throw new Error(`API Error: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
+      console.log('API成功レスポンス:', result);
       
       if (result.transcript) {
         setTranscript(prev => prev + result.transcript + '\n\n');
@@ -182,8 +195,28 @@ const StoreInspectionApp = () => {
       }
       
     } catch (error) {
-      console.error('音声処理エラー:', error);
-      alert(`音声処理中にエラーが発生しました: ${error.message}`);
+      console.error('音声処理エラー（詳細）:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      // より詳細なエラーメッセージを表示
+      let userMessage = '音声処理中にエラーが発生しました。';
+      
+      if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+        userMessage = 'ネットワークエラーです。インターネット接続を確認してください。';
+      } else if (error.message.includes('413')) {
+        userMessage = 'ファイルサイズが大きすぎます。短い音声で試してください。';
+      } else if (error.message.includes('400')) {
+        userMessage = '音声ファイルの形式に問題があります。';
+      } else if (error.message.includes('500')) {
+        userMessage = 'サーバーエラーです。しばらく時間をおいて再試行してください。';
+      } else {
+        userMessage = `エラー詳細: ${error.message}`;
+      }
+      
+      alert(userMessage);
     } finally {
       setIsProcessing(false);
     }
