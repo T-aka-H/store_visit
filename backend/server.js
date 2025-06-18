@@ -4,6 +4,7 @@ const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const speech = require('@google-cloud/speech');
 require('dotenv').config();
 
 const app = express();
@@ -13,8 +14,7 @@ const PORT = process.env.PORT || 3001;
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Google Speech-to-Text クライアント
-  keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS, // サービスアカウントキーのパス
-  projectId: process.env.GOOGLE_CLOUD_PROJECT_ID
+const speechClient = new speech.SpeechClient({
 });
 
 // ミドルウェア
@@ -219,7 +219,8 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     
     try {
       // Speech-to-Text API呼び出し
-      const [response] = await       
+      const [response] = await speechClient.recognize(speechRequest);
+      
       console.log('Speech-to-Text APIレスポンス受信');
       console.log('認識結果数:', response.results?.length || 0);
 
@@ -339,7 +340,8 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       error: '音声認識処理中にエラーが発生しました',
       details: `${error.name}: ${error.message}`,
       transcript: `処理エラー: ${error.message}`,
-      categorized_items:     []});
+      categorized_items: []
+    });
   }
 });
 
