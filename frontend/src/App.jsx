@@ -363,53 +363,101 @@ function App() {
 
   const exportToExcel = () => {
     try {
-      // CSV形式でエクスポート
-      let csvContent = '\uFEFF'; // BOMを追加してExcelで正しく表示
-      csvContent += '店舗視察レポート\n';
-      csvContent += `店舗名,${storeName || '未設定'}\n`;
-      csvContent += `作成日時,${new Date().toLocaleString('ja-JP')}\n\n`;
+      // Excel形式のHTMLテーブルを作成
+      let excelContent = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta charset="utf-8">
+          <!--[if gte mso 9]>
+          <xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>店舗視察レポート</x:Name>
+                  <x:WorksheetSource HRef="sheet.html"/>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml>
+          <![endif]-->
+          <style>
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; font-weight: bold; }
+            .header { background-color: #4472C4; color: white; font-size: 16px; font-weight: bold; }
+            .category { background-color: #D9E1F2; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <table>
+            <tr><td class="header" colspan="3">🏪 店舗視察レポート</td></tr>
+            <tr><td><strong>店舗名</strong></td><td colspan="2">${storeName || '未設定'}</td></tr>
+            <tr><td><strong>作成日時</strong></td><td colspan="2">${new Date().toLocaleString('ja-JP')}</td></tr>
+            <tr><td colspan="3"></td></tr>
+      `;
 
       // カテゴリ別データ
       categories.forEach(category => {
         if (category.items.length > 0) {
-          csvContent += `\n${category.name}\n`;
-          csvContent += 'コメント,信頼度,記録時刻\n';
+          excelContent += `
+            <tr><td class="category" colspan="3">${category.name}</td></tr>
+            <tr><th>コメント</th><th>信頼度</th><th>記録時刻</th></tr>
+          `;
           category.items.forEach(item => {
-            const text = `"${item.text.replace(/"/g, '""')}"`;
+            const text = item.text.replace(/"/g, '""').replace(/\n/g, ' ');
             const confidence = Math.round(item.confidence * 100);
-            csvContent += `${text},${confidence}%,${item.timestamp}\n`;
+            excelContent += `
+              <tr>
+                <td>${text}</td>
+                <td>${confidence}%</td>
+                <td>${item.timestamp}</td>
+              </tr>
+            `;
           });
+          excelContent += `<tr><td colspan="3"></td></tr>`;
         }
       });
 
       // 音声ログ
       if (transcript.trim()) {
-        csvContent += '\n音声ログ\n';
-        const transcriptText = `"${transcript.replace(/"/g, '""')}"`;
-        csvContent += `${transcriptText}\n`;
+        excelContent += `
+          <tr><td class="category" colspan="3">🎤 音声ログ</td></tr>
+          <tr><td colspan="3">${transcript.replace(/\n/g, '<br>')}</td></tr>
+          <tr><td colspan="3"></td></tr>
+        `;
       }
 
       // AI分析結果
       if (insights.trim()) {
-        csvContent += '\nAI分析結果\n';
-        const insightsText = `"${insights.replace(/"/g, '""')}"`;
-        csvContent += `${insightsText}\n`;
+        excelContent += `
+          <tr><td class="category" colspan="3">🧠 AI分析結果</td></tr>
+          <tr><td colspan="3">${insights.replace(/\n/g, '<br>')}</td></tr>
+        `;
       }
 
-      // ダウンロード
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      excelContent += `
+          </table>
+        </body>
+        </html>
+      `;
+
+      // Excel用のBlobを作成
+      const blob = new Blob([excelContent], { 
+        type: 'application/vnd.ms-excel;charset=utf-8' 
+      });
+      
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      const fileName = `店舗視察_${storeName || '未設定'}_${new Date().toISOString().slice(0, 10)}.csv`;
+      const fileName = `店舗視察_${storeName || '未設定'}_${new Date().toISOString().slice(0, 10)}.xls`;
       link.setAttribute('download', fileName);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
 
-      console.log('エクスポート完了:', fileName);
-      alert('データをエクスポートしました！');
+      console.log('Excelエクスポート完了:', fileName);
+      alert('Excelファイルをエクスポートしました！');
 
     } catch (error) {
       console.error('エクスポートエラー:', error);
