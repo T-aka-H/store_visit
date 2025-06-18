@@ -1,4 +1,4 @@
-// server.js (Speech-to-Text対応版 - 改善版)
+// server.js (Speech-to-Text対応版 - 修正版)
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -54,6 +54,58 @@ const THUMBNAIL_CONFIG = {
   format: 'jpeg',
   quality: 80
 };
+
+// 写真解析用プロンプト
+const PHOTO_ANALYSIS_PROMPT = `
+あなたは店舗視察の専門家です。以下の写真を分析し、店舗調査に関連する情報を抽出してください。
+
+分析観点：
+- 価格情報：値札、価格表示、セール情報など
+- 売り場情報：商品陳列、レイアウト、棚の配置など
+- 商品・品揃え：商品の種類、在庫状況、ブランドなど
+- 店舗環境：店内の雰囲気、清潔感、設備など
+- 客層・混雑度：お客様の様子、混雑状況など
+
+以下のJSON形式で結果を返してください：
+{
+  "categories": [
+    {
+      "category": "価格情報",
+      "items": ["具体的な価格情報"],
+      "confidence": 0.8
+    }
+  ],
+  "description": "写真の全体的な説明",
+  "detectedElements": ["写真から読み取れる具体的な要素"]
+}
+`;
+
+// 音声認識用プロンプト
+const SPEECH_CLASSIFICATION_PROMPT = `
+あなたは店舗視察の専門家です。以下のテキストを分析し、店舗調査に関連する情報を分類してください。
+
+分析観点：
+1. 価格情報：商品の価格、値段に関する情報
+2. 売り場情報：商品陳列、レイアウト、棚の配置に関する情報
+3. 商品・品揃え：商品の種類、在庫、ブランドに関する情報
+4. 店舗環境：店内の雰囲気、清潔感、設備、スタッフ対応に関する情報
+5. 客層・混雑度：お客様の様子、混雑状況に関する情報
+
+以下のJSON形式で結果を返してください：
+{
+  "classifications": [
+    {
+      "category": "価格情報",
+      "text": "分類されたテキスト",
+      "confidence": 0.9,
+      "reason": "分類理由"
+    }
+  ],
+  "summary": "全体的な要約"
+}
+
+分析対象テキスト：
+`;
 
 // 音声を Base64 に変換するヘルパー関数
 function bufferToBase64(buffer) {
@@ -374,6 +426,139 @@ const photoStorage = {
   }
 };
 
+// 音声認識・分類API（新規追加）
+app.post('/api/speech-to-text', upload.single('audio'), async (req, res) => {
+  try {
+    console.log('=== 音声認識開始 ===');
+    
+    if (!req.file) {
+      return res.status(400).json({ error: '音声ファイルが必要です' });
+    }
+
+    const audioBuffer = req.file.buffer;
+    const audioBase64 = bufferToBase64(audioBuffer);
+
+    // Gemini APIで音声認識
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    
+    // 音声認識プロンプト
+    const transcriptPrompt = `
+以下の音声を日本語のテキストに変換してください。
+店舗視察に関する内容です。
+
+音声データ（Base64）: ${audioBase64.substring(0, 100)}...
+
+テキストのみを返してください。
+`;
+
+    const result = await model.generateContent(transcriptPrompt);
+    const response = await result.response;
+    const transcribedText = response.text().trim();
+
+    console.log('音声認識結果:', transcribedText);
+
+    res.json({
+      transcribedText: transcribedText,
+      audioInfo: {
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        duration: null // 音声の長さは別途計算が必要
+      }
+    });
+
+  } catch (error) {
+    console.error('音声認識エラー:', error);
+    res.status(500).json({
+      error: '音声認識中にエラーが発生しました',
+      details: error.message
+    });
+  }
+});
+
+// テキスト分類API（新規追加）
+app.post('/api/classify-text', async (req, res) => {
+  try {
+    console.log('=== テキスト分類開始 ===');
+    
+    const { text } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ error: 'テキストが必要です' });
+    }
+
+    console.log('分類対象テキスト:', text);
+
+    // キーワードベース分類
+    const keywordClassifications = performKeywordBasedClassification(text);
+    console.log('キーワード分類結果:', keywordClassifications);
+
+    // Gemini APIで高度な分類
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const fullPrompt = SPEECH_CLASSIFICATION_PROMPT + text;
+    
+    try {
+      const result = await model.generateContent(fullPrompt);
+      const response = await result.response;
+      const content = response.text().trim();
+      
+      console.log('Gemini API応答:', content);
+
+      // JSONの抽出を改善
+      let aiClassifications = [];
+      let aiSummary = '';
+      
+      try {
+        // JSONブロックを抽出
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const jsonData = JSON.parse(jsonMatch[0]);
+          aiClassifications = jsonData.classifications || [];
+          aiSummary = jsonData.summary || '';
+        } else {
+          console.log('JSONが見つからない、キーワード分類のみ使用');
+        }
+      } catch (parseError) {
+        console.log('JSON解析エラー、キーワード分類のみ使用:', parseError.message);
+      }
+
+      // キーワード分類とAI分類を結合
+      const allClassifications = [...keywordClassifications, ...aiClassifications];
+      
+      // 重複を除去
+      const uniqueClassifications = allClassifications.filter((item, index, self) => 
+        index === self.findIndex(t => t.text === item.text && t.category === item.category)
+      );
+
+      res.json({
+        classifications: uniqueClassifications,
+        summary: aiSummary,
+        method: 'hybrid',
+        keywordCount: keywordClassifications.length,
+        aiCount: aiClassifications.length
+      });
+
+    } catch (geminiError) {
+      console.log('Gemini API エラー、キーワード分類のみ使用:', geminiError.message);
+      
+      // Gemini APIが失敗した場合、キーワード分類のみを返す
+      res.json({
+        classifications: keywordClassifications,
+        summary: 'キーワードベース分類のみ実行',
+        method: 'keyword-only',
+        keywordCount: keywordClassifications.length,
+        aiCount: 0
+      });
+    }
+
+  } catch (error) {
+    console.error('テキスト分類エラー:', error);
+    res.status(500).json({
+      error: 'テキスト分類中にエラーが発生しました',
+      details: error.message
+    });
+  }
+});
+
 // 写真解析APIを更新
 app.post('/api/analyze-photo', async (req, res) => {
   try {
@@ -418,11 +603,11 @@ app.post('/api/analyze-photo', async (req, res) => {
       // Gemini Vision APIによる解析
       const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
       const result = await model.generateContent([
-        { text: prompt },
+        { text: PHOTO_ANALYSIS_PROMPT },
         {
           inlineData: {
             mimeType: "image/jpeg",
-            data: imageBuffer
+            data: base64Data
           }
         }
       ]);
@@ -430,8 +615,25 @@ app.post('/api/analyze-photo', async (req, res) => {
       const response = await result.response;
       const content = response.text().trim();
 
-      // 解析結果のパースと保存
-      const analysis = JSON.parse(content.match(/\{[\s\S]*\}/)[0]);
+      console.log('Gemini Vision API応答:', content);
+
+      // 解析結果のパース
+      let analysis = {
+        categories: [],
+        description: '画像解析が完了しました',
+        detectedElements: []
+      };
+
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsedAnalysis = JSON.parse(jsonMatch[0]);
+          analysis = { ...analysis, ...parsedAnalysis };
+        }
+      } catch (parseError) {
+        console.log('JSON解析エラー、デフォルト値を使用:', parseError.message);
+        analysis.description = content.substring(0, 200) + '...';
+      }
       
       // 写真データの保存
       const photoData = {
@@ -439,11 +641,7 @@ app.post('/api/analyze-photo', async (req, res) => {
           data: `data:image/jpeg;base64,${processedImage.optimized}`,
           metadata: processedImage.metadata
         },
-        analysis: {
-          categories: analysis.categories || [],
-          description: analysis.description,
-          detectedElements: analysis.detectedElements || []
-        }
+        analysis: analysis
       };
 
       // 写真をストレージに保存
@@ -549,6 +747,40 @@ app.post('/api/export-photos', async (req, res) => {
       metadata: metadata,
       photos: photoFiles,
       total_photos: targetPhotos.length
+    });
+
+  } catch (error) {
+    console.error('写真エクスポートエラー:', error);
+    res.status(500).json({ 
+      error: '写真のエクスポート中にエラーが発生しました',
+      details: error.message
+    });
+  }
+});
+
+// CSVエクスポートAPI（新規追加）
+app.post('/api/export-csv', async (req, res) => {
+  try {
+    const { classifications, storeName, includePhotos } = req.body;
+    
+    if (!classifications || !Array.isArray(classifications)) {
+      return res.status(400).json({ error: '分類データが必要です' });
+    }
+
+    // 写真データを取得（必要に応じて）
+    let photos = [];
+    if (includePhotos) {
+      photos = photoStorage.getAllPhotos();
+    }
+
+    // CSV形式に変換
+    const csvData = convertToCSVFormat(classifications, storeName, photos);
+    
+    res.json({
+      message: 'CSVデータを生成しました',
+      csvData: csvData,
+      timestamp: new Date().toISOString()
+
     });
 
   } catch (error) {
