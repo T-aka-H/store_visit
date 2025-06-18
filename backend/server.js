@@ -339,50 +339,32 @@ function convertToCSVFormat(classifications, storeName = '', photos = []) {
   const csvHeaders = [
     'store_name',          // 店舗名
     'visit_timestamp',     // 視察日時
-    'price_info',         // 価格情報
-    'layout_info',        // 売り場情報
-    'customer_info',      // 客層・混雑度
-    'product_info',       // 商品・品揃え
-    'environment_info',    // 店舗環境
-    'photo_descriptions'   // 写真の説明（カンマ区切り）
+    'category',           // カテゴリ
+    'text',              // テキスト
+    'confidence',        // 信頼度
+    'reason',            // 分類理由
+    'photo_descriptions'  // 写真の説明（カンマ区切り）
   ];
-
-  // 分類結果を一時格納する配列
-  const categoryData = {
-    '価格情報': [],
-    '売り場情報': [],
-    '客層・混雑度': [],
-    '商品・品揃え': [],
-    '店舗環境': []
-  };
-
-  // 分類結果を各カテゴリに振り分け
-  classifications.forEach(item => {
-    if (categoryData[item.category]) {
-      categoryData[item.category].push(item.text);
-    }
-  });
 
   // 写真の説明文を準備
   const photoDescriptions = photos.map(photo => 
-    `[${photo.category}] ${photo.description} (${photo.timestamp})`
+    `[${photo.category}] ${photo.description}`
   ).join(' | ');
 
-  // CSVの1行のデータを作成
-  const csvRow = {
+  // CSVの行データを作成
+  const csvRows = classifications.map(classification => ({
     store_name: storeName,
     visit_timestamp: new Date().toISOString(),
-    price_info: categoryData['価格情報'].join(' | '),
-    layout_info: categoryData['売り場情報'].join(' | '),
-    customer_info: categoryData['客層・混雑度'].join(' | '),
-    product_info: categoryData['商品・品揃え'].join(' | '),
-    environment_info: categoryData['店舗環境'].join(' | '),
+    category: classification.category,
+    text: classification.text,
+    confidence: classification.confidence,
+    reason: classification.reason || '',
     photo_descriptions: photoDescriptions
-  };
+  }));
 
   return {
     headers: csvHeaders,
-    row: csvRow
+    rows: csvRows
   };
 }
 
@@ -649,16 +631,13 @@ app.post('/api/analyze-photo', async (req, res) => {
       const imageBuffer = Buffer.from(base64Data, 'base64');
       const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
 
-      // キーワードベース分類をデフォルトで使用
-      const defaultCategory = '店舗環境';
-      const defaultDescription = '店舗の写真が追加されました';
-      
-      let analysis = {
-        suggestedCategory: defaultCategory,
-        description: defaultDescription,
+      // デフォルトの解析結果
+      let classifications = [{
+        category: '店舗環境',
+        text: '店舗の写真が追加されました',
         confidence: 0.7,
-        detectedElements: []
-      };
+        reason: 'デフォルト分類'
+      }];
 
       // Gemini APIが利用可能な場合
       if (process.env.GEMINI_API_KEY) {
@@ -681,18 +660,14 @@ app.post('/api/analyze-photo', async (req, res) => {
           if (jsonMatch) {
             const geminiAnalysis = JSON.parse(jsonMatch[0]);
             
-            // 最も確信度の高いカテゴリを選択
             if (geminiAnalysis.categories && geminiAnalysis.categories.length > 0) {
-              const bestCategory = geminiAnalysis.categories.reduce((prev, current) => 
-                (current.confidence > prev.confidence) ? current : prev
-              );
-              
-              analysis = {
-                suggestedCategory: bestCategory.category,
-                description: geminiAnalysis.description || bestCategory.text,
-                confidence: bestCategory.confidence,
-                detectedElements: geminiAnalysis.detectedElements || []
-              };
+              // Geminiの分類結果をそのまま使用
+              classifications = geminiAnalysis.categories.map(category => ({
+                category: category.category,
+                text: category.text,
+                confidence: category.confidence,
+                reason: category.reason || '画像解析による分類'
+              }));
             }
           }
         } catch (geminiError) {
@@ -704,7 +679,7 @@ app.post('/api/analyze-photo', async (req, res) => {
       
       res.json({
         id: photoId,
-        analysis: analysis,
+        classifications: classifications,
         processedImage: {
           data: `data:image/jpeg;base64,${processedImage.optimized}`,
           metadata: processedImage.metadata
@@ -719,7 +694,7 @@ app.post('/api/analyze-photo', async (req, res) => {
 
   } catch (error) {
     console.error('写真解析エラー:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       error: '処理エラー',
       details: error.message
     });
@@ -826,7 +801,12 @@ app.post('/api/export-csv', async (req, res) => {
     // 写真データを取得（必要に応じて）
     let photos = [];
     if (includePhotos) {
-      photos = photoStorage.getAllPhotos();
+      photos = photoStorage.getAllPhotos().map(photo => ({
+        id: photo.id,
+        timestamp: photo.timestamp,
+        category: photo.analysis.category,
+        description: photo.analysis.description
+      }));
     }
 
     // CSV形式に変換
@@ -836,13 +816,12 @@ app.post('/api/export-csv', async (req, res) => {
       message: 'CSVデータを生成しました',
       csvData: csvData,
       timestamp: new Date().toISOString()
-
     });
 
   } catch (error) {
-    console.error('写真エクスポートエラー:', error);
+    console.error('CSVエクスポートエラー:', error);
     res.status(500).json({ 
-      error: '写真のエクスポート中にエラーが発生しました',
+      error: 'CSVエクスポート中にエラーが発生しました',
       details: error.message
     });
   }
@@ -885,14 +864,14 @@ app.get('/api/photos/:id/download', (req, res) => {
     archive.append(metadataBuffer, { name: `metadata_${id}.json` });
 
     // CSVサマリーの追加
-    const csvContent = `ID,撮影日時,カテゴリ,説明\n${id},${photo.timestamp},"${photo.analysis.categories.map(c => c.category).join(';')}","${photo.analysis.description}"`;
+    const csvContent = `ID,撮影日時,カテゴリ,説明,信頼度\n${id},${photo.timestamp},"${photo.analysis.category}","${photo.analysis.description}",${photo.analysis.confidence}`;
     archive.append(Buffer.from(csvContent, 'utf-8'), { name: 'summary.csv' });
 
     archive.finalize();
 
   } catch (error) {
     console.error('写真ダウンロードエラー:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       error: '写真のダウンロード中にエラーが発生しました',
       details: error.message
     });
@@ -926,7 +905,7 @@ app.post('/api/photos/download-multiple', (req, res) => {
     archive.pipe(res);
 
     // CSVサマリーの準備
-    let csvContent = 'ID,撮影日時,カテゴリ,説明\n';
+    let csvContent = 'ID,撮影日時,カテゴリ,説明,信頼度\n';
 
     // 各写真の処理
     targetPhotos.forEach(photo => {
@@ -948,7 +927,7 @@ app.post('/api/photos/download-multiple', (req, res) => {
       );
 
       // CSVサマリーの行を追加
-      csvContent += `${photo.id},${photo.timestamp},"${photo.analysis.categories.map(c => c.category).join(';')}","${photo.analysis.description}"\n`;
+      csvContent += `${photo.id},${photo.timestamp},"${photo.analysis.category}","${photo.analysis.description}",${photo.analysis.confidence}\n`;
     });
 
     // CSVサマリーの追加
@@ -957,7 +936,7 @@ app.post('/api/photos/download-multiple', (req, res) => {
     // エラーハンドリング
     archive.on('error', (err) => {
       console.error('ZIPファイル作成エラー:', err);
-      res.status(500).json({
+      res.status(500).json({ 
         error: 'ZIPファイルの作成中にエラーが発生しました',
         details: err.message
       });
@@ -967,9 +946,9 @@ app.post('/api/photos/download-multiple', (req, res) => {
 
   } catch (error) {
     console.error('複数写真ダウンロードエラー:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       error: '写真のダウンロード中にエラーが発生しました',
-      details: error.message
+      details: error.message 
     });
   }
 });
