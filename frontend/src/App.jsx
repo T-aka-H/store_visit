@@ -46,6 +46,8 @@ const StoreInspectionApp = () => {
   const [qaPairs, setQaPairs] = useState([]);
   const [isAnswering, setIsAnswering] = useState(false);
   const [showAiFeatures, setShowAiFeatures] = useState(false);
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [textInput, setTextInput] = useState('');
   
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -180,10 +182,10 @@ const StoreInspectionApp = () => {
       formData.append('audio', audioBlob, 'recording.webm');
       formData.append('categories', JSON.stringify(categories));
       
-      console.log('APIエンドポイント:', apiEndpoint);
+      console.log('APIエンドポイント:', useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint);
       console.log('送信するカテゴリ数:', categories.length);
 
-      const response = await fetch(apiEndpoint, {
+      const response = await fetch(useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint, {
         method: 'POST',
         body: formData
       });
@@ -558,6 +560,26 @@ const StoreInspectionApp = () => {
           </label>
           
           <button
+            onClick={() => setUseMockApi(!useMockApi)}
+            className={`flex items-center gap-3 px-6 py-4 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105 ${
+              useMockApi 
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white' 
+                : 'bg-gradient-to-r from-gray-600 to-slate-600 text-gray-300'
+            }`}
+          >
+            <MessageCircle size={20} />
+            {useMockApi ? 'モック ON' : 'モック OFF'}
+          </button>
+          
+          <button
+            onClick={() => setShowTextInput(!showTextInput)}
+            className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-xl hover:from-yellow-700 hover:to-orange-700 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
+          >
+            <MessageCircle size={20} />
+            テキスト入力
+          </button>
+          
+          <button
             onClick={clearData}
             disabled={isProcessing}
             className="flex items-center gap-3 px-6 py-4 bg-slate-700 text-gray-300 rounded-xl hover:bg-slate-600 hover:text-white transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl hover:scale-105"
@@ -566,6 +588,26 @@ const StoreInspectionApp = () => {
             データクリア
           </button>
         </div>
+
+        {/* テキスト入力モード */}
+        {showTextInput && (
+          <div className="mb-8 p-6 bg-slate-700/50 rounded-xl border border-slate-600">
+            <h3 className="text-lg font-semibold text-gray-200 mb-4">テキスト入力モード</h3>
+            <textarea
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="視察内容をテキストで入力してください..."
+              className="w-full h-32 px-4 py-3 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-800/70 text-gray-100 placeholder-gray-400 resize-none"
+            />
+            <button
+              onClick={processTextInput}
+              disabled={!textInput.trim() || isProcessing}
+              className="mt-4 px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 transition-all duration-200"
+            >
+              {isProcessing ? '処理中...' : 'テキストを分析'}
+            </button>
+          </div>
+        )}
 
         {isRecording && (
           <div className="mb-8 p-5 bg-gradient-to-r from-red-900/30 to-pink-900/30 border border-red-700/50 rounded-xl">
