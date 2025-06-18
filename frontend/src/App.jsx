@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect} from 'react';
 import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download } from 'lucide-react';
 
 function App() {
@@ -23,6 +23,7 @@ function App() {
   const [isWebSpeechSupported, setIsWebSpeechSupported] = useState(false);
   const [isWebSpeechRecording, setIsWebSpeechRecording] = useState(false);
   const recognitionRef = useRef(null);
+  const [textInput, setTextInput] = useState('');
   
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
