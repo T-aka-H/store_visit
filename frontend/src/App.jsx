@@ -883,52 +883,7 @@ function App() {
               }
               setIsProcessing(true);
               try {
-                const response = await fetch('/api/classify-context', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    text: transcript,
-                    categories: [
-                      { name: '価格情報', description: '商品の価格、値段、セール、割引情報、競合との価格比較、コスト関連の言及' },
-                      { name: '売り場情報', description: '店舗レイアウト、商品の陳列方法、通路、棚の配置、売り場の使い方' },
-                      { name: '客層・混雑度', description: '来店客の特徴、年齢層、性別、混雑状況、客数、客の動き' },
-                      { name: '商品・品揃え', description: '取扱商品の種類、品切れ、在庫状況、商品の特徴、品揃えの傾向' },
-                      { name: '店舗環境', description: '店舗の雰囲気、清潔さ、照明、温度、空調、BGM、騒音レベル' }
-                    ]
-                  })
-                });
-
-                if (!response.ok) {
-                  throw new Error('分類処理に失敗しました');
-                }
-
-                const result = await response.json();
-                if (result.classifications && result.classifications.length > 0) {
-                  // 既存のカテゴリにある同じテキストは上書きする
-                  const newCategories = [...categories];
-                  result.classifications.forEach(classification => {
-                    const categoryIndex = newCategories.findIndex(cat => cat.name === classification.category);
-                    if (categoryIndex !== -1) {
-                      const existingItemIndex = newCategories[categoryIndex].items.findIndex(
-                        item => item.text === classification.text
-                      );
-                      const newItem = {
-                        text: classification.text,
-                        confidence: classification.confidence,
-                        timestamp: new Date().toLocaleString()
-                      };
-                      
-                      if (existingItemIndex !== -1) {
-                        newCategories[categoryIndex].items[existingItemIndex] = newItem;
-                      } else {
-                        newCategories[categoryIndex].items.push(newItem);
-                      }
-                    }
-                  });
-                  setCategories(newCategories);
-                }
+                await performAIClassification(transcript, categories, setCategories);
               } catch (error) {
                 console.error('分類エラー:', error);
                 alert('分類処理中にエラーが発生しました: ' + error.message);
