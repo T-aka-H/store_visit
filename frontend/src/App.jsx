@@ -61,20 +61,39 @@ const performAIClassification = async (text, categories, setCategories) => {
   }
 };
 
+// ファイルサイズのフォーマット関数
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+};
+
 // 写真機能コンポーネント
-const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, storeName, isAnalyzing, onCapturePhoto, photos, setPhotos }) => {
+const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, storeName }) => {
+  const [photos, setPhotos] = useState([]);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+
+  // 写真削除
+  const removePhoto = (photoId) => {
+    setPhotos(prev => prev.filter(photo => photo.id !== photoId));
+    
+    setCategories(prevCategories => {
+      return prevCategories.map(category => ({
+        ...category,
+        items: category.items.filter(item => item.photoId !== photoId)
+      }));
+    });
+  };
 
   // 個別写真ダウンロード関数
   const downloadPhoto = async (photo) => {
     try {
-      // まずバックエンドAPIを試す
+      // バックエンドAPIを試す
       const response = await fetch(`${API_BASE_URL}/api/photos/${photo.id}/download`, {
         method: 'GET',
       });
       
       if (response.ok) {
-        // バックエンドAPIが成功した場合
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -83,7 +102,6 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
         document.body.appendChild(a);
         a.click();
         
-        // クリーンアップ
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         return;
@@ -97,7 +115,6 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
       const link = document.createElement('a');
       link.href = photo.base64;
       
-      // ファイル名を生成（日時とカテゴリを含む）
       const timestamp = new Date(photo.timestamp || Date.now())
         .toISOString()
         .slice(0, 19)
@@ -109,7 +126,6 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
       link.click();
       document.body.removeChild(link);
       
-      console.log('写真ダウンロード完了:', link.download);
     } catch (fallbackError) {
       console.error('フォールバックダウンロードエラー:', fallbackError);
       alert('写真のダウンロードに失敗しました');
@@ -124,92 +140,72 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
     }
 
     try {
-      const zip = new JSZip();
-      const photoFolder = zip.folder("store_photos");
-      
-      // 各写真をZIPに追加
-      photos.forEach((photo, index) => {
-        try {
-          // Base64データからバイナリデータを取得
-          const base64Data = photo.base64.split(',')[1];
-          
-          // ファイル名生成
-          const timestamp = new Date(photo.timestamp || Date.now())
-            .toISOString()
-            .slice(0, 19)
-            .replace(/[T:]/g, '-');
-          const category = photo.category ? `_${photo.category}` : '';
-          const fileName = `photo_${String(index + 1).padStart(3, '0')}_${timestamp}${category}.jpg`;
-          
-          photoFolder.file(fileName, base64Data, {base64: true});
-          
-          // メタデータファイルも追加
-          const metadata = {
-            originalTimestamp: photo.timestamp,
-            category: photo.category,
-            description: photo.description,
-            confidence: photo.confidence,
-            analysis: photo.analysis
-          };
-          photoFolder.file(`${fileName}.json`, JSON.stringify(metadata, null, 2));
-          
-        } catch (error) {
-          console.error(`写真 ${index + 1} の処理エラー:`, error);
-        }
-      });
-      
-      // レポート情報も追加
-      const reportData = {
-        storeName: storeName || '未設定',
-        exportDate: new Date().toISOString(),
-        totalPhotos: photos.length,
-        categories: categories.map(cat => ({
-          name: cat.name,
-          itemCount: cat.items.length
-        })),
-        photos: photos.map((photo, index) => ({
-          index: index + 1,
-          timestamp: photo.timestamp,
-          category: photo.category,
-          description: photo.description,
-          confidence: photo.confidence
-        }))
-      };
-      
-      zip.file("report.json", JSON.stringify(reportData, null, 2));
-      
-      // ZIPファイル生成とダウンロード
-      const zipBlob = await zip.generateAsync({
-        type: 'blob',
-        compression: "DEFLATE",
-        compressionOptions: { level: 6 }
-      });
-      
-      const url = window.URL.createObjectURL(zipBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      
-      // ZIPファイル名生成
-      const exportDate = new Date().toISOString().slice(0, 10);
-      const storeNameSafe = (storeName || 'unknown').replace(/[^a-zA-Z0-9\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '_');
-      link.download = `store_photos_${storeNameSafe}_${exportDate}.zip`;
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      alert(`${photos.length}枚の写真をZIPファイルでダウンロードしました！`);
-      
+      const JSZip = window.JSZip;
+      if (JSZip) {
+        const zip = new JSZip();
+        
+        // 写真のみZIPに追加
+        photos.forEach((photo, index) => {
+          try {
+            const base64Data = photo.base64.split(',')[1];
+            
+            const timestamp = new Date(photo.timestamp || Date.now())
+              .toISOString()
+              .slice(0, 19)
+              .replace(/[T:]/g, '-');
+            const category = photo.category ? `_${photo.category}` : '';
+            const fileName = `photo_${String(index + 1).padStart(3, '0')}_${timestamp}${category}.jpg`;
+            
+            zip.file(fileName, base64Data, {base64: true});
+            
+          } catch (error) {
+            console.error(`写真 ${index + 1} の処理エラー:`, error);
+          }
+        });
+        
+        const zipBlob = await zip.generateAsync({
+          type: 'blob',
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 }
+        });
+        
+        const url = window.URL.createObjectURL(zipBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        const exportDate = new Date().toISOString().slice(0, 10);
+        const storeNameSafe = (storeName || 'unknown').replace(/[^a-zA-Z0-9\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '_');
+        link.download = `store_photos_${storeNameSafe}_${exportDate}.zip`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+        alert(`${photos.length}枚の写真をZIPファイルでダウンロードしました！`);
+        
+      } else {
+        // JSZipが利用できない場合は個別ダウンロード
+        photos.forEach((photo, index) => {
+          setTimeout(() => {
+            const link = document.createElement('a');
+            link.href = photo.base64;
+            const timestamp = new Date(photo.timestamp || Date.now())
+              .toISOString()
+              .slice(0, 19)
+              .replace(/[T:]/g, '-');
+            const category = photo.category ? `_${photo.category}` : '';
+            link.download = `photo_${index + 1}_${timestamp}${category}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }, index * 500);
+        });
+      }
     } catch (error) {
       console.error('一括ダウンロードエラー:', error);
       alert('写真の一括ダウンロードに失敗しました: ' + error.message);
     }
-  };
-
-  // 写真削除
-  const removePhoto = (photoId) => {
-    setPhotos(prev => prev.filter(p => p.id !== photoId));
   };
 
   return (
@@ -228,7 +224,7 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
           {photos.length > 0 && (
             <button
               onClick={downloadAllPhotos}
-              disabled={isAnalyzing || isProcessing}
+              disabled={isProcessing}
               className="flex items-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 shadow-sm transition-all duration-200 text-sm font-medium active:bg-green-600"
               title={`${photos.length}枚の写真をZIPでダウンロード`}
             >
@@ -238,13 +234,13 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
           )}
           {/* 写真撮影ボタン - iPhone向けサイズ */}
           <button
-            onClick={onCapturePhoto}
-            disabled={isAnalyzing || isProcessing}
+            onClick={onPhotoAdded}
+            disabled={isProcessing}
             className="flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm transition-all duration-200 font-medium active:bg-blue-600"
           >
             <Camera size={16} />
             <span className="text-sm font-medium">
-              {isAnalyzing ? '解析中...' : '撮影'}
+              {isProcessing ? '解析中...' : '撮影'}
             </span>
           </button>
         </div>
@@ -985,6 +981,7 @@ function App() {
   };
 
   const handlePhotoAdded = (photoData) => {
+    console.log('写真が追加されました:', photoData);
     setPhotos(prev => [...prev, photoData]);
   };
 
@@ -1204,10 +1201,6 @@ function App() {
           setCategories={setCategories}
           isProcessing={isProcessing}
           storeName={storeName}
-          isAnalyzing={isAnalyzing}
-          onCapturePhoto={capturePhoto}
-          photos={photos}
-          setPhotos={setPhotos}
         />
 
         {/* コントロールボタン */}
