@@ -378,9 +378,17 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing })
 
   // ファイルサイズフォーマット
   const formatFileSize = (bytes) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1048576).toFixed(1) + ' MB';
+    if (!bytes) return '不明';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = bytes;
+    let unitIndex = 0;
+    
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+    
+    return `${Math.round(size * 10) / 10} ${units[unitIndex]}`;
   };
 
   return (
@@ -395,151 +403,190 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing })
           )}
         </h2>
         <div className="flex gap-2">
-          {/* 一括ダウンロードボタン */}
+          {/* 一括ダウンロードボタン - iPhone向けサイズ */}
           {photos.length > 0 && (
             <button
               onClick={downloadAllPhotos}
               disabled={isAnalyzing || isProcessing}
-              className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200 text-sm"
+              className="flex items-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 shadow-sm transition-all duration-200 text-sm font-medium active:bg-green-600"
               title={`${photos.length}枚の写真をZIPでダウンロード`}
             >
-              <Download size={14} />
-              <span className="font-medium">全写真DL</span>
+              <Download size={16} />
+              <span>全保存</span>
             </button>
           )}
-          {/* 写真撮影ボタン */}
+          {/* 写真撮影ボタン - iPhone向けサイズ */}
           <button
             onClick={capturePhoto}
             disabled={isAnalyzing || isProcessing}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
+            className="flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm transition-all duration-200 font-medium active:bg-blue-600"
           >
             <Camera size={16} />
             <span className="text-sm font-medium">
-              {isAnalyzing ? '解析中...' : '写真撮影'}
+              {isAnalyzing ? '解析中...' : '撮影'}
             </span>
           </button>
         </div>
       </div>
 
-      {/* 解析中インジケーター */}
-      {isAnalyzing && (
-        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="flex items-center gap-3">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-            <span className="text-blue-700 text-sm font-medium">
-              🤖 AIが写真を解析中... 自動でカテゴリ分類します
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* 写真グリッド */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-        {photos.map(photo => (
-          <div key={photo.id} className="relative group">
-            <img
-              src={photo.base64}
-              alt={photo.description}
-              className="w-full aspect-square object-cover rounded-lg"
-            />
-            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
-              <div className="opacity-0 group-hover:opacity-100 flex gap-2">
-                {/* 詳細表示ボタン */}
-                <button
-                  onClick={() => setSelectedPhoto(photo)}
-                  className="p-2 bg-white bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
-                  title="詳細表示"
-                >
-                  <Eye size={16} className="text-gray-700" />
-                </button>
-                
-                {/* ダウンロードボタン */}
-                <button
-                  onClick={() => downloadPhoto(photo)}
-                  className="p-2 bg-green-500 bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
-                  title="この写真をダウンロード"
-                >
-                  <Download size={16} className="text-white" />
-                </button>
-                
-                {/* 削除ボタン */}
-                <button
-                  onClick={() => removePhoto(photo.id)}
-                  className="p-2 bg-red-500 bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
-                  title="削除"
-                >
-                  <X size={16} className="text-white" />
-                </button>
-              </div>
+      {/* 写真一覧 - iPhone最適化版 */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+        {photos.length > 0 ? (
+          <div className="p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {photos.map((photo) => (
+                <div key={photo.id} className="bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
+                  {/* 写真画像 */}
+                  <div className="aspect-square bg-gray-100 overflow-hidden">
+                    <img
+                      src={photo.base64}
+                      alt={photo.description}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  
+                  {/* 写真情報とアクションボタン */}
+                  <div className="p-3">
+                    {/* 写真メタ情報 */}
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="inline-block w-2 h-2 rounded-full bg-green-400"></span>
+                        <span className="font-medium text-sm text-gray-700">{photo.category}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mb-1">
+                        {photo.timestamp}
+                      </div>
+                      {photo.analysis?.confidence && (
+                        <div className="text-xs text-blue-600">
+                          信頼度: {Math.round(photo.analysis.confidence * 100)}%
+                        </div>
+                      )}
+                      {photo.description && (
+                        <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                          {photo.description}
+                        </p>
+                      )}
+                    </div>
+                    
+                    {/* アクションボタン群 - iPhone向け大きめサイズ */}
+                    <div className="flex gap-2">
+                      {/* 詳細表示ボタン */}
+                      <button
+                        onClick={() => setSelectedPhoto(photo)}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-blue-500 text-white rounded-lg text-sm font-medium active:bg-blue-600 transition-colors"
+                      >
+                        <Eye size={16} />
+                        <span>詳細</span>
+                      </button>
+                      
+                      {/* ダウンロードボタン */}
+                      <button
+                        onClick={() => downloadPhoto(photo)}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-green-500 text-white rounded-lg text-sm font-medium active:bg-green-600 transition-colors"
+                      >
+                        <Download size={16} />
+                        <span>保存</span>
+                      </button>
+                      
+                      {/* 削除ボタン */}
+                      <button
+                        onClick={() => removePhoto(photo.id)}
+                        className="flex items-center justify-center py-3 px-3 bg-red-500 text-white rounded-lg active:bg-red-600 transition-colors"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        ))}
+        ) : (
+          <div className="p-8 text-center text-gray-400">
+            <Camera size={48} className="mx-auto mb-3 opacity-50" />
+            <p>まだ写真がありません</p>
+            <p className="text-sm mt-1">「写真撮影」ボタンでiPhoneカメラが起動します</p>
+          </div>
+        )}
       </div>
 
-      {/* 写真詳細モーダル */}
+      {/* 写真詳細モーダル - iPhone最適化版 */}
       {selectedPhoto && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-75 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="p-4">
+              {/* ヘッダー */}
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">写真詳細</h3>
-                <div className="flex gap-2">
-                  {/* ダウンロードボタン */}
-                  <button
-                    onClick={() => downloadPhoto(selectedPhoto)}
-                    className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-all"
-                    title="ダウンロード"
-                  >
-                    <Download size={20} />
-                  </button>
-                  {/* 閉じるボタン */}
-                  <button
-                    onClick={() => setSelectedPhoto(null)}
-                    className="p-2 hover:bg-gray-100 rounded-full"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setSelectedPhoto(null)}
+                  className="p-2 hover:bg-gray-100 rounded-full active:bg-gray-200"
+                >
+                  <X size={24} />
+                </button>
               </div>
               
+              {/* 写真 */}
               <img
                 src={selectedPhoto.base64}
                 alt={selectedPhoto.description}
                 className="w-full rounded-lg mb-4"
               />
               
-              <div className="space-y-3">
+              {/* アクションボタン - iPhone向け大きめ */}
+              <div className="flex gap-3 mb-4">
+                <button
+                  onClick={() => downloadPhoto(selectedPhoto)}
+                  className="flex-1 flex items-center justify-center gap-2 py-4 bg-green-500 text-white rounded-lg font-medium active:bg-green-600 transition-colors"
+                >
+                  <Download size={20} />
+                  <span>この写真を保存</span>
+                </button>
+                <button
+                  onClick={() => {
+                    removePhoto(selectedPhoto.id);
+                    setSelectedPhoto(null);
+                  }}
+                  className="flex items-center justify-center py-4 px-4 bg-red-500 text-white rounded-lg active:bg-red-600 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              {/* 詳細情報 */}
+              <div className="space-y-3 text-sm">
                 <div>
-                  <h4 className="font-medium text-gray-700">撮影日時</h4>
-                  <p className="text-sm text-gray-600">
-                    {new Date(selectedPhoto.timestamp).toLocaleString()}
-                  </p>
-                </div>
-                
-                <div>
-                  <h4 className="font-medium text-gray-700">分類</h4>
-                  <p className="text-sm text-gray-600">
+                  <span className="font-medium text-gray-700">カテゴリ:</span>
+                  <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded">
                     {selectedPhoto.category}
-                  </p>
+                  </span>
                 </div>
                 
                 <div>
-                  <h4 className="font-medium text-gray-700">説明</h4>
-                  <p className="text-sm text-gray-600">
-                    {selectedPhoto.description}
-                  </p>
+                  <span className="font-medium text-gray-700">AI分析結果:</span>
+                  <p className="mt-1 text-gray-600">{selectedPhoto.description}</p>
+                </div>
+                
+                <div>
+                  <span className="font-medium text-gray-700">撮影日時:</span>
+                  <span className="ml-2 text-gray-600">{selectedPhoto.timestamp}</span>
+                </div>
+                
+                <div>
+                  <span className="font-medium text-gray-700">ファイルサイズ:</span>
+                  <span className="ml-2 text-gray-600">{formatFileSize(selectedPhoto.size)}</span>
                 </div>
                 
                 {selectedPhoto.metadata?.location && (
                   <div>
-                    <h4 className="font-medium text-gray-700">位置情報</h4>
-                    <p className="text-sm text-gray-600">
-                      緯度: {selectedPhoto.metadata.location.lat}
-                      <br />
-                      経度: {selectedPhoto.metadata.location.lng}
-                      <br />
-                      精度: {selectedPhoto.metadata.location.accuracy}m
-                    </p>
+                    <span className="font-medium text-gray-700 flex items-center gap-1">
+                      <MapPin size={14} />
+                      位置情報:
+                    </span>
+                    <span className="ml-2 text-gray-600 text-xs">
+                      {selectedPhoto.metadata.location.lat}, {selectedPhoto.metadata.location.lng}
+                      (精度: ±{selectedPhoto.metadata.location.accuracy}m)
+                    </span>
                   </div>
                 )}
               </div>
@@ -1190,7 +1237,7 @@ function App() {
           <button
             onClick={() => setShowTextInput(!showTextInput)}
             disabled={isWebSpeechRecording}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 shadow-sm hover:shadow-md min-h-[52px] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 px-4 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
           >
             <MessageCircle size={20} />
             <span className="text-sm font-medium">テキスト入力</span>
@@ -1200,7 +1247,7 @@ function App() {
           <button
             onClick={clearData}
             disabled={isProcessing || isWebSpeechRecording}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md min-h-[52px]"
+            className="flex items-center justify-center gap-2 px-4 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 shadow-sm hover:shadow-md min-h-[52px]"
           >
             <Trash2 size={20} />
             <span className="text-sm font-medium">データクリア</span>
