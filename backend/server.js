@@ -244,39 +244,48 @@ function splitIntoSentences(text) {
 
 // 分類結果をCSV形式に変換する関数
 function convertToCSVFormat(classifications, storeName = '') {
-  // 基本カテゴリ構造の定義
-  const csvStructure = {
-    store_name: storeName,
-    timestamp: new Date().toISOString(),
-    価格情報: [],
-    売り場情報: [],
-    客層_混雑度: [],
-    商品_品揃え: [],
-    店舗環境: []
+  // CSVヘッダー（固定）
+  const csvHeaders = [
+    'store_name',          // 店舗名
+    'visit_timestamp',     // 視察日時
+    'price_info',         // 価格情報
+    'layout_info',        // 売り場情報
+    'customer_info',      // 客層・混雑度
+    'product_info',       // 商品・品揃え
+    'environment_info'    // 店舗環境
+  ];
+
+  // 分類結果を一時格納する配列
+  const categoryData = {
+    '価格情報': [],
+    '売り場情報': [],
+    '客層・混雑度': [],
+    '商品・品揃え': [],
+    '店舗環境': []
   };
 
-  // 分類結果を構造体に格納
+  // 分類結果を各カテゴリに振り分け
   classifications.forEach(item => {
-    const categoryKey = item.category === '客層・混雑度' ? '客層_混雑度' :
-                       item.category === '商品・品揃え' ? '商品_品揃え' :
-                       item.category;
-    if (csvStructure[categoryKey]) {
-      csvStructure[categoryKey].push(item.text);
+    if (categoryData[item.category]) {
+      categoryData[item.category].push(item.text);
     }
   });
 
-  // 各カテゴリの配列を文字列に変換
-  const csvData = {
-    store_name: csvStructure.store_name,
-    timestamp: csvStructure.timestamp,
-    価格情報: csvStructure.価格情報.join(' | '),
-    売り場情報: csvStructure.売り場情報.join(' | '),
-    客層_混雑度: csvStructure.客層_混雑度.join(' | '),
-    商品_品揃え: csvStructure.商品_品揃え.join(' | '),
-    店舗環境: csvStructure.店舗環境.join(' | ')
+  // CSVの1行のデータを作成
+  const csvRow = {
+    store_name: storeName,
+    visit_timestamp: new Date().toISOString(),
+    price_info: categoryData['価格情報'].join(' | '),
+    layout_info: categoryData['売り場情報'].join(' | '),
+    customer_info: categoryData['客層・混雑度'].join(' | '),
+    product_info: categoryData['商品・品揃え'].join(' | '),
+    environment_info: categoryData['店舗環境'].join(' | ')
   };
 
-  return csvData;
+  return {
+    headers: csvHeaders,
+    row: csvRow
+  };
 }
 
 // 音声認識・分類API（ブラウザベース + Geminiバックアップ）
@@ -293,7 +302,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       // 改善されたキーワードベース分類を使用
       const categorizedItems = performKeywordBasedClassification(browserTranscript);
 
-      // 店舗名の抽出（CSVのstore_name用）
+      // 店舗名の抽出
       const storeNameMatch = browserTranscript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
       const storeName = storeNameMatch ? storeNameMatch[1] : '';
 
@@ -303,7 +312,10 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       return res.json({
         transcript: browserTranscript,
         categorized_items: categorizedItems,
-        csv_data: csvData,
+        csv_format: {
+          headers: csvData.headers,
+          row: csvData.row
+        },
         source: 'browser'
       });
     }
@@ -416,7 +428,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
         console.log('分類結果:', allClassifications);
 
-        // 店舗名の抽出（CSVのstore_name用）
+        // 店舗名の抽出
         const storeNameMatch = parsedResponse.transcript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
         const storeName = storeNameMatch ? storeNameMatch[1] : '';
 
@@ -426,7 +438,10 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         res.json({
           transcript: parsedResponse.transcript,
           categorized_items: allClassifications,
-          csv_data: csvData,
+          csv_format: {
+            headers: csvData.headers,
+            row: csvData.row
+          },
           source: 'gemini'
         });
 
@@ -436,7 +451,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         // パースに失敗した場合は、テキスト全体を transcript として扱う
         const categorizedItems = performKeywordBasedClassification(content);
 
-        // 店舗名の抽出（CSVのstore_name用）
+        // 店舗名の抽出
         const storeNameMatch = content.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
         const storeName = storeNameMatch ? storeNameMatch[1] : '';
 
@@ -446,7 +461,10 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         res.json({
           transcript: content,
           categorized_items: categorizedItems,
-          csv_data: csvData,
+          csv_format: {
+            headers: csvData.headers,
+            row: csvData.row
+          },
           source: 'gemini_fallback'
         });
       }
@@ -458,7 +476,10 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         error: '音声認識エラー',
         transcript: `音声認識に失敗しました: ${geminiError.message}`,
         categorized_items: [],
-        csv_data: {}
+        csv_format: {
+          headers: [],
+          row: {}
+        }
       });
     }
 
@@ -469,12 +490,14 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     console.error('エラースタック:', error.stack);
     console.error('=== エラー終了 ===');
     
-    res.status(500).json({ 
-      error: '音声認識処理中にエラーが発生しました',
-      details: `${error.name}: ${error.message}`,
-      transcript: `処理エラー: ${error.message}`,
+    res.status(500).json({
+      error: '処理エラー',
+      details: error.message,
       categorized_items: [],
-      csv_data: {}
+      csv_format: {
+        headers: [],
+        row: {}
+      }
     });
   }
 });
@@ -609,7 +632,7 @@ app.post('/api/classify-context', async (req, res) => {
 
       console.log('分類完了。最終結果数:', uniqueClassifications.length);
 
-      // 店舗名の抽出（CSVのstore_name用）
+      // 店舗名の抽出
       const storeNameMatch = text.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
       const storeName = storeNameMatch ? storeNameMatch[1] : '';
 
@@ -618,7 +641,10 @@ app.post('/api/classify-context', async (req, res) => {
 
       res.json({ 
         classifications: uniqueClassifications,
-        csv_data: csvData
+        csv_format: {
+          headers: csvData.headers,
+          row: csvData.row
+        }
       });
 
     } catch (error) {
@@ -631,11 +657,14 @@ app.post('/api/classify-context', async (req, res) => {
 
   } catch (error) {
     console.error('AI文脈分類エラー:', error);
-    res.status(500).json({ 
-      error: '文脈分類処理中にエラーが発生しました',
+    res.status(500).json({
+      error: 'エラー',
       details: error.message,
       classifications: [],
-      csv_data: {}
+      csv_format: {
+        headers: [],
+        row: {}
+      }
     });
   }
 });
