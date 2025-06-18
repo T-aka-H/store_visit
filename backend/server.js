@@ -288,7 +288,7 @@ app.post('/api/classify-context', async (req, res) => {
     console.log('分割された文章数:', sentences.length);
 
     const categoriesText = categories.map(cat => 
-      `- ${cat.name}: ${cat.description}`
+      `${cat.name}`
     ).join('\n');
 
     const classifications = [];
@@ -297,21 +297,14 @@ app.post('/api/classify-context', async (req, res) => {
     for (const sentence of sentences) {
       if (!sentence.trim()) continue;
 
-      const prompt = `あなたは店舗視察データを分類する専門家です。以下の文章を分析し、最も適切なカテゴリに分類してください。
+      const prompt = `次の文章を指定されたカテゴリのいずれかに分類してください。
 
-分析対象文章: "${sentence.trim()}"
+文章: "${sentence.trim()}"
 
-利用可能カテゴリ:
+カテゴリ一覧:
 ${categoriesText}
 
-分類ルール:
-1. 文章の文脈と意味を理解して分類する
-2. キーワードの有無ではなく、内容の本質で判断する
-3. 最も関連性の高いカテゴリを1つ選ぶ
-4. 分類理由を簡潔に説明する
-5. 信頼度を0.1〜1.0で評価する（確信度が高いほど1.0に近い値）
-
-以下のJSON形式で回答してください。説明は不要です。
+以下のJSON形式で回答してください。余計な説明は一切不要です。
 
 {
   "category": "カテゴリ名",
@@ -327,80 +320,51 @@ ${categoriesText}
         const response = await result.response;
         const content = response.text().trim();
 
-        console.log('Gemini応答の生データ:', content);
+        console.log('Gemini応答:', content);
 
-        // 応答からJSONを抽出
+        // JSONの抽出を試みる
         let jsonContent = null;
-        let extractionMethod = '';
 
-        // 方法1: 直接JSONとしてパース
         try {
-          jsonContent = JSON.parse(content);
-          extractionMethod = '直接パース';
-        } catch (e) {
-          console.log('直接JSONパース失敗:', e.message);
-
-          // 方法2: JSONブロックを正規表現で抽出
+          // JSONブロックを抽出
           const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
-            try {
-              jsonContent = JSON.parse(jsonMatch[0]);
-              extractionMethod = '正規表現抽出';
-            } catch (e2) {
-              console.log('正規表現抽出JSONパース失敗:', e2.message);
-            }
+            jsonContent = JSON.parse(jsonMatch[0]);
           }
-
-          // 方法3: 行ごとに解析してJSONを再構築
-          if (!jsonContent) {
-            try {
-              const lines = content.split('\n');
-              const jsonLines = lines.filter(line => 
-                line.includes(':') && 
-                !line.includes('分析対象文章') && 
-                !line.includes('利用可能カテゴリ')
-              );
-              
-              const reconstructedJson = '{' + 
-                jsonLines
-                  .map(line => {
-                    const [key, ...values] = line.split(':');
-                    const value = values.join(':').trim();
-                    return `"${key.trim()}": ${value.startsWith('"') ? value : `"${value}"`}`;
-                  })
-                  .join(',') + 
-                '}';
-              
-              jsonContent = JSON.parse(reconstructedJson);
-              extractionMethod = '行ベース再構築';
-            } catch (e3) {
-              console.log('行ベース再構築失敗:', e3.message);
-            }
-          }
+        } catch (parseError) {
+          console.error('JSONパースエラー:', parseError.message);
+          continue;
         }
 
-        console.log('抽出方法:', extractionMethod);
-        console.log('パース結果:', JSON.stringify(jsonContent, null, 2));
+        // 有効な分類結果の確認
+        if (jsonContent && 
+            typeof jsonContent.category === 'string' && 
+            typeof jsonContent.text === 'string') {
+          
+          // カテゴリ名が有効かチェック
+          const isValidCategory = categories.some(cat => 
+            cat.name === jsonContent.category
+          );
 
-        if (jsonContent && jsonContent.category && jsonContent.text) {
-          classifications.push({
-            category: jsonContent.category,
-            text: jsonContent.text,
-            confidence: parseFloat(jsonContent.confidence) || 0.7,
-            reason: jsonContent.reason || '理由なし'
-          });
-          console.log('分類成功:', jsonContent.category);
+          if (isValidCategory) {
+            classifications.push({
+              category: jsonContent.category,
+              text: jsonContent.text,
+              confidence: typeof jsonContent.confidence === 'number' ? 
+                         jsonContent.confidence : 0.7,
+              reason: typeof jsonContent.reason === 'string' ? 
+                     jsonContent.reason : '分類理由なし'
+            });
+            console.log('分類成功:', jsonContent.category);
+          } else {
+            console.log('無効なカテゴリ名:', jsonContent.category);
+          }
         } else {
-          console.log('有効な分類結果が得られませんでした');
+          console.log('無効な分類結果');
         }
 
       } catch (error) {
-        console.error('文章の分類中にエラー:', error);
-        console.error('エラーの詳細:', {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        });
+        console.error('文章の分類中にエラー:', error.message);
       }
     }
 
@@ -439,12 +403,6 @@ ${categoriesText}
 
   } catch (error) {
     console.error('AI文脈分類エラー:', error);
-    console.error('エラーの詳細:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    });
-    
     res.status(500).json({ 
       error: '文脈分類処理中にエラーが発生しました',
       details: error.message,
