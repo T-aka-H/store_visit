@@ -466,7 +466,7 @@ const convertCsvToCategories = (csvData) => {
 const PhotoCard = ({ photo, onDelete }) => {
   const handleDownload = async () => {
     try {
-      const response = await fetch(`/api/photos/${photo.id}/download`, {
+      const response = await fetch(`${API_BASE_URL}/api/photos/${photo.id}/download`, {
         method: 'GET',
       });
       
@@ -497,7 +497,7 @@ const PhotoCard = ({ photo, onDelete }) => {
   return (
     <div className="bg-white rounded-lg shadow-md p-4 mb-4">
       <img
-        src={photo.thumbnail}
+        src={photo.processedImage.data}
         alt="Store visit"
         className="w-full h-48 object-cover rounded-lg mb-4"
       />
@@ -508,14 +508,16 @@ const PhotoCard = ({ photo, onDelete }) => {
         <div className="flex gap-2">
           <button
             onClick={handleDownload}
-            className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"
+            className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm flex items-center gap-1"
           >
+            <Download size={16} />
             ダウンロード
           </button>
           <button
             onClick={() => onDelete(photo.id)}
-            className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+            className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm flex items-center gap-1"
           >
+            <Trash2 size={16} />
             削除
           </button>
         </div>
