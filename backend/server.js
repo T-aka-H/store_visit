@@ -297,7 +297,7 @@ app.post('/api/classify-context', async (req, res) => {
     for (const sentence of sentences) {
       if (!sentence.trim()) continue;
 
-      const prompt = `以下の文章を分析し、最も適切なカテゴリに分類してください。
+      const prompt = `あなたは店舗視察データを分類する専門家です。以下の文章を分析し、最も適切なカテゴリに分類してください。
 
 分析対象文章: "${sentence.trim()}"
 
@@ -311,16 +311,14 @@ ${categoriesText}
 4. 分類理由を簡潔に説明する
 5. 信頼度を0.1〜1.0で評価する（確信度が高いほど1.0に近い値）
 
-以下のJSON形式で回答してください:
+以下のJSON形式で回答してください。説明は不要です。
+
 {
   "category": "カテゴリ名",
   "text": "分析対象文章",
   "confidence": 0.9,
   "reason": "分類理由"
-}
-
-該当するカテゴリがない場合は null を返してください。
-JSONのみを返してください。説明は不要です。`;
+}`;
 
       try {
         console.log('文章を分析中:', sentence.substring(0, 50) + '...');
@@ -329,59 +327,89 @@ JSONのみを返してください。説明は不要です。`;
         const response = await result.response;
         const content = response.text().trim();
 
-        console.log('Gemini応答:', content);
+        console.log('Gemini応答の生データ:', content);
 
-        // JSONの抽出を試みる
-        let jsonContent;
+        // 応答からJSONを抽出
+        let jsonContent = null;
+        let extractionMethod = '';
+
+        // 方法1: 直接JSONとしてパース
         try {
-          // 1. 直接JSONとしてパース
           jsonContent = JSON.parse(content);
+          extractionMethod = '直接パース';
         } catch (e) {
-          // 2. JSONっぽい部分を抽出してパース
+          console.log('直接JSONパース失敗:', e.message);
+
+          // 方法2: JSONブロックを正規表現で抽出
           const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             try {
               jsonContent = JSON.parse(jsonMatch[0]);
+              extractionMethod = '正規表現抽出';
             } catch (e2) {
-              console.error('JSON抽出失敗:', e2);
-              continue;
+              console.log('正規表現抽出JSONパース失敗:', e2.message);
             }
-          } else {
-            console.error('JSON形式が見つからない');
-            continue;
+          }
+
+          // 方法3: 行ごとに解析してJSONを再構築
+          if (!jsonContent) {
+            try {
+              const lines = content.split('\n');
+              const jsonLines = lines.filter(line => 
+                line.includes(':') && 
+                !line.includes('分析対象文章') && 
+                !line.includes('利用可能カテゴリ')
+              );
+              
+              const reconstructedJson = '{' + 
+                jsonLines
+                  .map(line => {
+                    const [key, ...values] = line.split(':');
+                    const value = values.join(':').trim();
+                    return `"${key.trim()}": ${value.startsWith('"') ? value : `"${value}"`}`;
+                  })
+                  .join(',') + 
+                '}';
+              
+              jsonContent = JSON.parse(reconstructedJson);
+              extractionMethod = '行ベース再構築';
+            } catch (e3) {
+              console.log('行ベース再構築失敗:', e3.message);
+            }
           }
         }
 
-        // 有効な分類結果の確認
+        console.log('抽出方法:', extractionMethod);
+        console.log('パース結果:', JSON.stringify(jsonContent, null, 2));
+
         if (jsonContent && jsonContent.category && jsonContent.text) {
           classifications.push({
             category: jsonContent.category,
             text: jsonContent.text,
-            confidence: jsonContent.confidence || 0.7,
+            confidence: parseFloat(jsonContent.confidence) || 0.7,
             reason: jsonContent.reason || '理由なし'
           });
           console.log('分類成功:', jsonContent.category);
-        } else if (jsonContent && jsonContent.classification) {
-          // 古い形式のレスポンスにも対応
-          const classData = jsonContent.classification;
-          classifications.push({
-            category: classData.category,
-            text: classData.text,
-            confidence: classData.confidence || 0.7,
-            reason: classData.reason || '理由なし'
-          });
-          console.log('分類成功（旧形式）:', classData.category);
+        } else {
+          console.log('有効な分類結果が得られませんでした');
         }
+
       } catch (error) {
         console.error('文章の分類中にエラー:', error);
-        // 個別の文章の処理エラーは無視して続行
+        console.error('エラーの詳細:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        });
       }
     }
 
     console.log('全文章の分類完了。結果数:', classifications.length);
     
+    // 分類結果がない場合のフォールバック
     if (classifications.length === 0) {
-      // キーワードベースのフォールバック分類
+      console.log('フォールバック分類を実行');
+      
       const keywords = {
         '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
         '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
@@ -390,8 +418,8 @@ JSONのみを返してください。説明は不要です。`;
         '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
       };
 
-      Object.entries(keywords).forEach(([category, keywordList]) => {
-        sentences.forEach(sentence => {
+      sentences.forEach(sentence => {
+        Object.entries(keywords).forEach(([category, keywordList]) => {
           const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
           if (matchedKeywords.length > 0) {
             classifications.push({
@@ -403,12 +431,20 @@ JSONのみを返してください。説明は不要です。`;
           }
         });
       });
+      
+      console.log('フォールバック分類結果数:', classifications.length);
     }
 
     res.json({ classifications });
 
   } catch (error) {
     console.error('AI文脈分類エラー:', error);
+    console.error('エラーの詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
     res.status(500).json({ 
       error: '文脈分類処理中にエラーが発生しました',
       details: error.message,
