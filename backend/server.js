@@ -4,6 +4,7 @@ const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const sharp = require('sharp');  // 画像処理ライブラリを追加
+const archiver = require('archiver');  // ZIP作成用ライブラリを追加
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
@@ -453,7 +454,7 @@ const photoStorage = {
   }
 };
 
-// 音声認識・分類API（ブラウザベース + Geminiバックアップ）
+// 音声認識API（シンプル版）
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     console.log('=== 音声認識開始 ===');
@@ -463,24 +464,8 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     
     if (browserTranscript && browserTranscript.trim()) {
       console.log('ブラウザ音声認識結果:', browserTranscript);
-      
-      // 改善されたキーワードベース分類を使用
-      const categorizedItems = performKeywordBasedClassification(browserTranscript);
-
-      // 店舗名の抽出
-      const storeNameMatch = browserTranscript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
-      const storeName = storeNameMatch ? storeNameMatch[1] : '';
-
-      // CSV形式のデータを生成
-      const csvData = convertToCSVFormat(categorizedItems, storeName);
-
       return res.json({
         transcript: browserTranscript,
-        categorized_items: categorizedItems,
-        csv_format: {
-          headers: csvData.headers,
-          row: csvData.row
-        },
         source: 'browser'
       });
     }
@@ -501,60 +486,14 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
       const base64Audio = bufferToBase64(req.file.buffer);
 
-      const prompt = `あなたは小売店舗の視察データを分析する専門家です。
-以下の音声ファイルは店舗視察時の録音データです。以下の手順で分析してください：
+      const prompt = `以下の音声を日本語のテキストに変換してください。
+店舗視察に関する内容です。
+音声が不明瞭な場合は「音声が不明瞭でした」と回答してください。
+話者の口調や感情も可能な限り反映してください。
 
-1. 音声の文字起こし
-- 日本語で正確に文字起こしを行ってください
-- 聞き取れない場合は「音声が不明瞭でした」と回答してください
-- 話者の口調や感情も可能な限り反映してください
+音声データ（Base64）: ${base64Audio.substring(0, 100)}...
 
-2. 内容の分類
-以下のカテゴリに関連する情報を抽出し、分類してください：
-
-価格情報:
-- 商品の価格、値段
-- セール、割引情報
-- 競合との価格比較
-- コスト関連の言及
-
-売り場情報:
-- 店舗レイアウト
-- 商品の陳列方法
-- 通路、棚の配置
-- 売り場の使い方
-
-客層・混雑度:
-- 来店客の特徴
-- 年齢層、性別
-- 混雑状況
-- 客数、客の動き
-
-商品・品揃え:
-- 取扱商品の種類
-- 品切れ、在庫状況
-- 商品の特徴
-- 品揃えの傾向
-
-店舗環境:
-- 店舗の雰囲気
-- 清潔さ、照明
-- 温度、空調
-- BGM、騒音レベル
-
-以下のJSON形式で回答してください：
-{
-  "transcript": "文字起こしの内容をここに記載",
-  "categories": [
-    {
-      "category": "カテゴリ名",
-      "text": "該当する発言内容",
-      "confidence": 0.8  // 0.1-1.0の範囲で確信度を設定
-    }
-  ]
-}
-
-音声が不明瞭な場合でも、聞き取れた部分から最大限の情報抽出を試みてください。`;
+テキストのみを返してください。`;
 
       const result = await model.generateContent([
         { text: prompt },
@@ -567,84 +506,21 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       ]);
 
       const response = await result.response;
-      const content = response.text().trim();
+      const transcribedText = response.text().trim();
 
-      console.log('Geminiバックアップ成功:', content);
+      console.log('Geminiバックアップ成功:', transcribedText);
 
-      try {
-        // JSONレスポースのパース
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        let parsedResponse = {
-          transcript: '音声認識に失敗しました',
-          categories: []
-        };
-
-        if (jsonMatch) {
-          const jsonContent = JSON.parse(jsonMatch[0]);
-          parsedResponse = {
-            transcript: jsonContent.transcript || '音声認識に失敗しました',
-            categories: jsonContent.categories || []
-          };
-        }
-
-        // 改善されたキーワードベース分類を追加実行
-        const additionalClassifications = performKeywordBasedClassification(parsedResponse.transcript);
-        const allClassifications = [...(parsedResponse.categories || []), ...additionalClassifications];
-
-        console.log('分類結果:', allClassifications);
-
-        // 店舗名の抽出
-        const storeNameMatch = parsedResponse.transcript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
-        const storeName = storeNameMatch ? storeNameMatch[1] : '';
-
-        // CSV形式のデータを生成
-        const csvData = convertToCSVFormat(allClassifications, storeName);
-
-        res.json({
-          transcript: parsedResponse.transcript,
-          categorized_items: allClassifications,
-          csv_format: {
-            headers: csvData.headers,
-            row: csvData.row
-          },
-          source: 'gemini'
-        });
-
-      } catch (parseError) {
-        console.error('Geminiレスポースのパースエラー:', parseError);
-        
-        // パースに失敗した場合は、テキスト全体を transcript として扱う
-        const categorizedItems = performKeywordBasedClassification(content);
-
-        // 店舗名の抽出
-        const storeNameMatch = content.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
-        const storeName = storeNameMatch ? storeNameMatch[1] : '';
-
-        // CSV形式のデータを生成
-        const csvData = convertToCSVFormat(categorizedItems, storeName);
-
-        res.json({
-          transcript: content,
-          categorized_items: categorizedItems,
-          csv_format: {
-            headers: csvData.headers,
-            row: csvData.row
-          },
-          source: 'gemini_fallback'
-        });
-      }
+      res.json({
+        transcript: transcribedText,
+        source: 'gemini'
+      });
 
     } catch (geminiError) {
       console.error('Geminiバックアップ失敗:', geminiError);
       
       res.status(500).json({
         error: '音声認識エラー',
-        transcript: `音声認識に失敗しました: ${geminiError.message}`,
-        categorized_items: [],
-        csv_format: {
-          headers: [],
-          row: {}
-        }
+        details: geminiError.message
       });
     }
 
@@ -657,12 +533,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     
     res.status(500).json({
       error: '処理エラー',
-      details: error.message,
-      categorized_items: [],
-      csv_format: {
-        headers: [],
-        row: {}
-      }
+      details: error.message
     });
   }
 });
@@ -1126,6 +997,132 @@ app.post('/api/export-csv', async (req, res) => {
     console.error('写真エクスポートエラー:', error);
     res.status(500).json({ 
       error: '写真のエクスポート中にエラーが発生しました',
+      details: error.message
+    });
+  }
+});
+
+// 単一写真のダウンロードAPI
+app.get('/api/photos/:id/download', (req, res) => {
+  try {
+    const { id } = req.params;
+    const photo = photoStorage.getPhoto(id);
+
+    if (!photo) {
+      return res.status(404).json({ error: '写真が見つかりません' });
+    }
+
+    // Base64データをバッファに変換
+    const imageData = photo.processedImage.data.split('base64,')[1];
+    const imageBuffer = Buffer.from(imageData, 'base64');
+
+    // メタデータをJSONファイルとして準備
+    const metadata = {
+      id: photo.id,
+      timestamp: photo.timestamp,
+      analysis: photo.analysis,
+      metadata: photo.processedImage.metadata
+    };
+    const metadataBuffer = Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8');
+
+    // ZIPファイルの作成
+    const archive = archiver('zip', {
+      zlib: { level: 9 } // 最大圧縮レベル
+    });
+
+    // ヘッダーの設定
+    res.attachment(`store_visit_photo_${id}.zip`);
+    archive.pipe(res);
+
+    // 写真とメタデータをZIPに追加
+    archive.append(imageBuffer, { name: `store_visit_photo_${id}.jpg` });
+    archive.append(metadataBuffer, { name: `metadata_${id}.json` });
+
+    // CSVサマリーの追加
+    const csvContent = `ID,撮影日時,カテゴリ,説明\n${id},${photo.timestamp},"${photo.analysis.categories.map(c => c.category).join(';')}","${photo.analysis.description}"`;
+    archive.append(Buffer.from(csvContent, 'utf-8'), { name: 'summary.csv' });
+
+    archive.finalize();
+
+  } catch (error) {
+    console.error('写真ダウンロードエラー:', error);
+    res.status(500).json({
+      error: '写真のダウンロード中にエラーが発生しました',
+      details: error.message
+    });
+  }
+});
+
+// 複数写真のZIPダウンロードAPI
+app.post('/api/photos/download-multiple', (req, res) => {
+  try {
+    const { photoIds } = req.body;
+    
+    // 写真の取得
+    let targetPhotos = [];
+    if (photoIds && Array.isArray(photoIds)) {
+      targetPhotos = photoIds.map(id => photoStorage.getPhoto(id)).filter(Boolean);
+    } else {
+      targetPhotos = photoStorage.getAllPhotos();
+    }
+
+    if (targetPhotos.length === 0) {
+      return res.status(400).json({ error: 'ダウンロードする写真がありません' });
+    }
+
+    // ZIPファイルの作成
+    const archive = archiver('zip', {
+      zlib: { level: 9 }
+    });
+
+    // ヘッダーの設定
+    res.attachment('store_visit_photos.zip');
+    archive.pipe(res);
+
+    // CSVサマリーの準備
+    let csvContent = 'ID,撮影日時,カテゴリ,説明\n';
+
+    // 各写真の処理
+    targetPhotos.forEach(photo => {
+      // 写真データの追加
+      const imageData = photo.processedImage.data.split('base64,')[1];
+      const imageBuffer = Buffer.from(imageData, 'base64');
+      archive.append(imageBuffer, { name: `photos/store_visit_photo_${photo.id}.jpg` });
+
+      // メタデータの追加
+      const metadata = {
+        id: photo.id,
+        timestamp: photo.timestamp,
+        analysis: photo.analysis,
+        metadata: photo.processedImage.metadata
+      };
+      archive.append(
+        Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8'),
+        { name: `metadata/metadata_${photo.id}.json` }
+      );
+
+      // CSVサマリーの行を追加
+      csvContent += `${photo.id},${photo.timestamp},"${photo.analysis.categories.map(c => c.category).join(';')}","${photo.analysis.description}"\n`;
+    });
+
+    // CSVサマリーの追加
+    archive.append(Buffer.from(csvContent, 'utf-8'), { name: 'summary.csv' });
+
+    // エラーハンドリング
+    archive.on('error', (err) => {
+      console.error('ZIPファイル作成エラー:', err);
+      res.status(500).json({
+        error: 'ZIPファイルの作成中にエラーが発生しました',
+        details: err.message
+      });
+    });
+
+    archive.finalize();
+
+  } catch (error) {
+    console.error('複数写真ダウンロードエラー:', error);
+    res.status(500).json({
+      error: '写真のダウンロード中にエラーが発生しました',
       details: error.message
     });
   }
