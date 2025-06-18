@@ -4,7 +4,55 @@ import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download
 
 const performAIClassification = async (text) => {
   console.log('performAIClassification 呼び出し:', text);
-  // TODO: 必要に応じてAI分類APIを呼び出す処理を追加
+  
+  try {
+    const response = await fetch('http://localhost:3001/api/classify-context', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: text,
+        categories: categories
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || '分類処理中にエラーが発生しました');
+    }
+
+    const data = await response.json();
+    console.log('分類結果:', data);
+
+    if (data.classifications && data.classifications.length > 0) {
+      setCategories(prevCategories => {
+        const updatedCategories = [...prevCategories];
+        
+        data.classifications.forEach(classification => {
+          const categoryIndex = updatedCategories.findIndex(
+            cat => cat.name === classification.category
+          );
+          
+          if (categoryIndex !== -1) {
+            updatedCategories[categoryIndex].items.push({
+              text: classification.text,
+              confidence: classification.confidence,
+              reason: classification.reason,
+              timestamp: new Date().toLocaleTimeString()
+            });
+          }
+        });
+        
+        return updatedCategories;
+      });
+    }
+
+    return data.classifications;
+  } catch (error) {
+    console.error('AI分類エラー:', error);
+    throw error;
+  }
 };
 
 function App() {
@@ -165,63 +213,14 @@ function App() {
         }
       }
 
-      // カテゴリ自動分類
-      const keywords = {
-        '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
-        '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
-        '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
-        '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
-        '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
-      };
-
-      const categorizedItems = [];
-      Object.entries(keywords).forEach(([categoryName, keywordList]) => {
-        const matchedKeywords = keywordList.filter(keyword => transcriptText.includes(keyword));
-        
-        if (matchedKeywords.length > 0) {
-          console.log(`カテゴリ「${categoryName}」でマッチ:`, matchedKeywords);
-          
-          categorizedItems.push({
-            category: categoryName,
-            text: transcriptText,
-            confidence: Math.min(0.95, 0.7 + (matchedKeywords.length * 0.05)),
-            matchedKeywords: matchedKeywords
-          });
-        }
-      });
-
-      // カテゴリに分類
-      if (categorizedItems.length > 0) {
-        console.log('カテゴリ分類結果:', categorizedItems);
-        
-        setCategories(prevCategories => {
-          const updatedCategories = [...prevCategories];
-          
-          categorizedItems.forEach(item => {
-            const categoryIndex = updatedCategories.findIndex(
-              cat => cat.name === item.category
-            );
-            
-            if (categoryIndex !== -1) {
-              updatedCategories[categoryIndex].items.push({
-                text: `${item.text} [Web Speech - キーワード: ${item.matchedKeywords.join(', ')}]`,
-                confidence: item.confidence,
-                timestamp: new Date().toLocaleTimeString()
-              });
-            }
-          });
-          
-          return updatedCategories;
-        });
-      } else {
-        console.log('マッチするカテゴリなし');
-      }
+      // AI分類を実行
+      await performAIClassification(transcriptText);
 
       console.log('Web Speech 処理完了');
       
     } catch (error) {
       console.error('Web Speech 結果処理エラー:', error);
-      alert('音声認識結果の処理中にエラーが発生しました');
+      alert('音声認識結果の処理中にエラーが発生しました: ' + error.message);
     } finally {
       setIsProcessing(false);
     }
@@ -685,53 +684,15 @@ function App() {
     try {
       setTranscript(prev => prev + textInput + '\n\n');
       
-      const newItems = [];
-      categories.forEach(category => {
-        const keywords = category.name.includes('価格') ? ['円', '価格', '値段', '安い', '高い'] :
-                        category.name.includes('売り場') ? ['売り場', 'レイアウト', '陳列', '棚'] :
-                        category.name.includes('客層') ? ['客', 'お客', '混雑', '空い'] :
-                        category.name.includes('商品') ? ['商品', '品揃え', '欠品'] :
-                        category.name.includes('店舗') ? ['店舗', '立地', '駐車場', '清潔'] : [];
-        
-        keywords.forEach(keyword => {
-          if (textInput.includes(keyword)) {
-            newItems.push({
-              category: category.name,
-              text: textInput,
-              confidence: 0.8
-            });
-          }
-        });
-      });
-      
-      if (newItems.length > 0) {
-        setCategories(prevCategories => {
-          const updatedCategories = [...prevCategories];
-          
-          newItems.forEach(item => {
-            const categoryIndex = updatedCategories.findIndex(
-              cat => cat.name === item.category
-            );
-            
-            if (categoryIndex !== -1) {
-              updatedCategories[categoryIndex].items.push({
-                text: item.text,
-                confidence: item.confidence,
-                timestamp: new Date().toLocaleTimeString()
-              });
-            }
-          });
-          
-          return updatedCategories;
-        });
-      }
+      // AI分類を実行
+      await performAIClassification(textInput);
       
       setTextInput('');
       alert('テキストが正常に処理されました！');
       
     } catch (error) {
       console.error('テキスト処理エラー:', error);
-      alert('テキスト処理中にエラーが発生しました');
+      alert('テキスト処理中にエラーが発生しました: ' + error.message);
     } finally {
       setIsProcessing(false);
     }
@@ -846,7 +807,7 @@ function App() {
               type="text"
               value={storeName}
               onChange={(e) => setStoreName(e.target.value)}
-              placeholder="音声で「今日はサミット野沢龍雲店の視察です」等と話すか、直接入力してください"
+              placeholder="音声で「今日はサミット野沢龍雲寺店の視察です」等と話すか、直接入力してください"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400"
             />
             {storeName && (
