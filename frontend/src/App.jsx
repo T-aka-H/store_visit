@@ -925,11 +925,11 @@ function App() {
             <button
               onClick={isWebSpeechRecording ? stopWebSpeechRecording : startWebSpeechRecording}
               disabled={isProcessing}
-              className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
+              className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
                 isWebSpeechRecording 
-                  ? 'bg-red-500 hover:bg-red-600 animate-pulse' 
-                  : 'bg-blue-500 hover:bg-blue-600 hover:scale-110'
-              } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} text-white`}
+                  ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
+                  : 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-blue-700'
+              } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} text-blue-900`}
             >
               {isWebSpeechRecording ? <MicOff size={24} /> : <Mic size={24} />}
             </button>
