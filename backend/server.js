@@ -313,36 +313,64 @@ ${categoriesText}
 
 以下のJSON形式で回答してください:
 {
-  "classification": {
-    "category": "カテゴリ名",
-    "text": "分析対象文章",
-    "confidence": 0.9,
-    "reason": "分類理由の簡潔な説明"
-  }
+  "category": "カテゴリ名",
+  "text": "分析対象文章",
+  "confidence": 0.9,
+  "reason": "分類理由"
 }
 
-該当するカテゴリがない場合は null を返してください。`;
+該当するカテゴリがない場合は null を返してください。
+JSONのみを返してください。説明は不要です。`;
 
       try {
         console.log('文章を分析中:', sentence.substring(0, 50) + '...');
         
         const result = await model.generateContent(prompt);
         const response = await result.response;
-        const content = response.text();
+        const content = response.text().trim();
 
-        // JSONを抽出・解析
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.classification && parsed.classification.category) {
-            classifications.push({
-              category: parsed.classification.category,
-              text: parsed.classification.text,
-              confidence: parsed.classification.confidence,
-              reason: parsed.classification.reason
-            });
-            console.log('分類成功:', parsed.classification.category);
+        console.log('Gemini応答:', content);
+
+        // JSONの抽出を試みる
+        let jsonContent;
+        try {
+          // 1. 直接JSONとしてパース
+          jsonContent = JSON.parse(content);
+        } catch (e) {
+          // 2. JSONっぽい部分を抽出してパース
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            try {
+              jsonContent = JSON.parse(jsonMatch[0]);
+            } catch (e2) {
+              console.error('JSON抽出失敗:', e2);
+              continue;
+            }
+          } else {
+            console.error('JSON形式が見つからない');
+            continue;
           }
+        }
+
+        // 有効な分類結果の確認
+        if (jsonContent && jsonContent.category && jsonContent.text) {
+          classifications.push({
+            category: jsonContent.category,
+            text: jsonContent.text,
+            confidence: jsonContent.confidence || 0.7,
+            reason: jsonContent.reason || '理由なし'
+          });
+          console.log('分類成功:', jsonContent.category);
+        } else if (jsonContent && jsonContent.classification) {
+          // 古い形式のレスポンスにも対応
+          const classData = jsonContent.classification;
+          classifications.push({
+            category: classData.category,
+            text: classData.text,
+            confidence: classData.confidence || 0.7,
+            reason: classData.reason || '理由なし'
+          });
+          console.log('分類成功（旧形式）:', classData.category);
         }
       } catch (error) {
         console.error('文章の分類中にエラー:', error);
@@ -351,12 +379,39 @@ ${categoriesText}
     }
 
     console.log('全文章の分類完了。結果数:', classifications.length);
+    
+    if (classifications.length === 0) {
+      // キーワードベースのフォールバック分類
+      const keywords = {
+        '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
+        '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
+        '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
+        '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
+        '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
+      };
+
+      Object.entries(keywords).forEach(([category, keywordList]) => {
+        sentences.forEach(sentence => {
+          const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
+          if (matchedKeywords.length > 0) {
+            classifications.push({
+              category: category,
+              text: sentence,
+              confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1)),
+              reason: `キーワード「${matchedKeywords.join('、')}」を検出`
+            });
+          }
+        });
+      });
+    }
+
     res.json({ classifications });
 
   } catch (error) {
     console.error('AI文脈分類エラー:', error);
     res.status(500).json({ 
       error: '文脈分類処理中にエラーが発生しました',
+      details: error.message,
       classifications: []
     });
   }
