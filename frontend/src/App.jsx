@@ -846,7 +846,7 @@ function App() {
               type="text"
               value={storeName}
               onChange={(e) => setStoreName(e.target.value)}
-              placeholder="音声で「今日はイオン千葉店の視察です」等と話すか、直接入力してください"
+              placeholder="音声で「今日はサミット野沢龍雲店の視察です」等と話すか、直接入力してください"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400"
             />
             {storeName && (
@@ -912,7 +912,7 @@ function App() {
           <button
             onClick={() => setShowAiFeatures(!showAiFeatures)}
             disabled={isWebSpeechRecording}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 shadow-sm hover:shadow-md min-h-[52px] disabled:opacity-50 col-span-2"
+            className="flex items-center justify-center gap-2 px-4 py-4 bg-red-400 text-white rounded-lg hover:bg-red-500 transition-all duration-200 shadow-sm hover:shadow-md min-h-[52px] disabled:opacity-50 col-span-2"
           >
             <Brain size={20} />
             <span className="text-sm font-medium">AI分析</span>
