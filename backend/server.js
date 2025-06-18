@@ -93,16 +93,11 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // iPhone対応: 非常にシンプルで確実なプロンプト
+    // iPhone対応: JSONを使わない単純なプロンプト
     const prompt = `この音声ファイルの内容を日本語で文字起こししてください。
 
-以下のJSON形式で回答してください:
-{
-  "transcript": "音声の内容をここに書いてください",
-  "categorized_items": []
-}
-
-重要: 必ずJSONのみを返してください。説明文は不要です。`;
+音声が聞き取れない場合は「音声が不明瞭でした」と回答してください。
+マークダウンやJSON形式は使わず、普通の文章で回答してください。`;
 
     console.log('Gemini APIリクエスト送信中...');
     console.log('使用MIME型:', mimeType);
@@ -127,53 +122,11 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       console.log('レスポンス内容:', content);
       console.log('=== レスポンス終了 ===');
 
-      // 非常にシンプルなJSON抽出
-      let finalResult = {
-        transcript: '',
+      // JSONを期待せず、プレーンテキストとして処理
+      const finalResult = {
+        transcript: content.trim() || '音声認識に失敗しました',
         categorized_items: []
       };
-
-      // JSONブロックを抽出
-      const cleanContent = content.replace(/```json|```/g, '').trim();
-      
-      try {
-        // まず全体をJSONとして解析
-        finalResult = JSON.parse(cleanContent);
-        console.log('JSON解析成功');
-      } catch (parseError) {
-        console.log('JSON解析失敗、代替処理:', parseError.message);
-        
-        // 波括弧を探してJSON部分を抽出
-        const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            finalResult = JSON.parse(jsonMatch[0]);
-            console.log('部分JSON解析成功');
-          } catch (e) {
-            console.log('部分JSON解析も失敗、フォールバック');
-            finalResult = {
-              transcript: cleanContent,
-              categorized_items: []
-            };
-          }
-        } else {
-          // JSONが見つからない場合、テキストとして処理
-          finalResult = {
-            transcript: cleanContent,
-            categorized_items: []
-          };
-        }
-      }
-
-      // transcriptが空の場合のフォールバック
-      if (!finalResult.transcript || finalResult.transcript.trim() === '') {
-        finalResult.transcript = content;
-      }
-
-      // categorized_itemsが配列でない場合の修正
-      if (!Array.isArray(finalResult.categorized_items)) {
-        finalResult.categorized_items = [];
-      }
 
       console.log('最終レスポンス:', finalResult);
       res.json(finalResult);
@@ -348,6 +301,48 @@ ${transcript}
       error: '質問応答処理中にエラーが発生しました',
       details: error.message,
       answer: 'エラーが発生したため、質問に回答できませんでした。'
+    });
+  }
+});
+
+// テスト用モックAPI（緊急対応）
+app.post('/api/transcribe-mock', upload.single('audio'), async (req, res) => {
+  try {
+    console.log('モックAPI呼び出し');
+    
+    if (!req.file) {
+      return res.status(400).json({ error: '音声ファイルが必要です' });
+    }
+
+    // ファイル情報をログ出力
+    console.log('ファイル情報:', {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size
+    });
+
+    // モック応答を返す
+    const mockResponse = {
+      transcript: `音声ファイル（${req.file.mimetype}, ${Math.round(req.file.size/1024)}KB）を受信しました。実際の音声認識APIではここに文字起こし結果が表示されます。`,
+      categorized_items: [
+        {
+          category: '価格情報',
+          text: 'モックデータ: 商品価格について',
+          confidence: 0.9,
+          timestamp: new Date().toLocaleTimeString()
+        }
+      ]
+    };
+
+    console.log('モックレスポンス:', mockResponse);
+    res.json(mockResponse);
+
+  } catch (error) {
+    console.error('モックAPIエラー:', error);
+    res.status(500).json({
+      error: 'モックAPI処理エラー',
+      transcript: 'モックAPI処理中にエラーが発生しました',
+      categorized_items: []
     });
   }
 });
