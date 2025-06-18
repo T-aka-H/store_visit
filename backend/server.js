@@ -454,12 +454,11 @@ const photoStorage = {
   }
 };
 
-// 音声認識API（シンプル版）
+// 音声認識API
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     console.log('=== 音声認識開始 ===');
     
-    // ブラウザからの音声認識テキストを確認
     const browserTranscript = req.body.transcript;
     
     if (browserTranscript && browserTranscript.trim()) {
@@ -470,28 +469,19 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       });
     }
 
-    // ブラウザでの音声認識が失敗した場合、Geminiをバックアップとして使用
     if (!req.file) {
       return res.status(400).json({ error: '音声ファイルまたはテキストが必要です' });
     }
 
     console.log('=== Geminiバックアップ処理開始 ===');
-    console.log('ファイル情報:', {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size
-    });
-
+    
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const base64Audio = bufferToBase64(req.file.buffer);
 
       const prompt = `以下の音声を日本語のテキストに変換してください。
 店舗視察に関する内容です。
 音声が不明瞭な場合は「音声が不明瞭でした」と回答してください。
-話者の口調や感情も可能な限り反映してください。
-
-音声データ（Base64）: ${base64Audio.substring(0, 100)}...
 
 テキストのみを返してください。`;
 
@@ -526,10 +516,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
   } catch (error) {
     console.error('=== 全体エラー ===');
-    console.error('エラー名:', error.name);
-    console.error('エラーメッセージ:', error.message);
-    console.error('エラースタック:', error.stack);
-    console.error('=== エラー終了 ===');
+    console.error('エラー:', error);
     
     res.status(500).json({
       error: '処理エラー',
@@ -538,7 +525,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-// AI文脈理解による分類API（完全改善版）
+// AI文脈理解による分類API
 app.post('/api/classify-context', async (req, res) => {
   try {
     console.log('=== AI文脈分類リクエスト受信 ===');
@@ -553,9 +540,8 @@ app.post('/api/classify-context', async (req, res) => {
       return res.status(500).json({ error: 'API設定エラー' });
     }
 
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // 改善されたプロンプト
     const categoriesText = categories.map(cat => cat.name).join(', ');
 
     const prompt = `あなたは店舗視察データの分析エキスパートです。以下のテキストから複数の情報要素を抽出し、それぞれを適切なカテゴリに分類してください。
@@ -580,28 +566,10 @@ app.post('/api/classify-context', async (req, res) => {
     "text": "トマト28円",
     "confidence": 0.9,
     "reason": "商品価格の明確な記載"
-  },
-  {
-    "category": "価格情報", 
-    "text": "ネギ29円",
-    "confidence": 0.9,
-    "reason": "商品価格の明確な記載"
-  },
-  {
-    "category": "店舗環境",
-    "text": "非常に大きなお店",
-    "confidence": 0.8,
-    "reason": "店舗規模に関する情報"
-  },
-  {
-    "category": "店舗環境",
-    "text": "案内係というサービスがあります",
-    "confidence": 0.8,
-    "reason": "店舗サービスに関する情報"
   }
 ]
 
-重要: 一つのテキストから複数の異なる情報要素を必ず抽出してください。価格、サービス、環境などの情報が混在している場合は、それぞれを個別の分類結果として出力してください。JSON配列で複数の結果を返すことが必須です。`;
+重要: 一つのテキストから複数の異なる情報要素を必ず抽出してください。`;
 
     try {
       console.log('文章を分析中:', text.substring(0, 100) + '...');
@@ -610,12 +578,9 @@ app.post('/api/classify-context', async (req, res) => {
       const response = await result.response;
       const content = response.text().trim();
 
-      console.log('Gemini応答:', content);
-
       let classifications = [];
 
       try {
-        // JSON配列の抽出を試みる
         const jsonMatch = content.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           const jsonArray = JSON.parse(jsonMatch[0]);
@@ -625,58 +590,41 @@ app.post('/api/classify-context', async (req, res) => {
               item.text && 
               categories.some(cat => cat.name === item.category)
             );
-            console.log('AI分類成功。結果数:', classifications.length);
           }
         }
       } catch (parseError) {
         console.error('JSONパースエラー:', parseError.message);
-        
-        // パースに失敗した場合、単一オブジェクトとして解析を試みる
-        try {
-          const singleJsonMatch = content.match(/\{[\s\S]*\}/);
-          if (singleJsonMatch) {
-            const singleResult = JSON.parse(singleJsonMatch[0]);
-            if (singleResult.category && singleResult.text && 
-                categories.some(cat => cat.name === singleResult.category)) {
-              classifications = [singleResult];
-              console.log('単一オブジェクト分類成功');
-            }
-          }
-        } catch (singleParseError) {
-          console.error('単一JSONパースも失敗:', singleParseError.message);
-        }
       }
 
-      // フォールバック: 改善されたキーワードベース分類
+      // キーワードベース分類は、Gemini分類が失敗した場合のみ使用
       if (classifications.length === 0) {
-        console.log('AIによる分類が失敗、改善されたフォールバック分類を実行');
         classifications = performKeywordBasedClassification(text);
       }
 
-      // 重複除去（同じカテゴリの類似テキストを統合）
-      const uniqueClassifications = [];
-      classifications.forEach(item => {
-        const existing = uniqueClassifications.find(existing => 
+      // 重複除去（より厳密な比較）
+      const uniqueClassifications = classifications.reduce((unique, item) => {
+        const isDuplicate = unique.some(existing => 
           existing.category === item.category && 
-          existing.text.includes(item.text.substring(0, 10))
+          (
+            existing.text === item.text ||
+            existing.text.includes(item.text) ||
+            item.text.includes(existing.text)
+          )
         );
         
-        if (!existing) {
-          uniqueClassifications.push(item);
+        if (!isDuplicate) {
+          unique.push(item);
         }
-      });
+        return unique;
+      }, []);
 
-      console.log('分類完了。最終結果数:', uniqueClassifications.length);
-
-      // 店舗名の抽出
       const storeNameMatch = text.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
       const storeName = storeNameMatch ? storeNameMatch[1] : '';
 
-      // CSV形式のデータを生成
       const csvData = convertToCSVFormat(uniqueClassifications, storeName);
 
       res.json({ 
-        classifications: uniqueClassifications,
+        categories: uniqueClassifications,
         csv_format: {
           headers: csvData.headers,
           row: csvData.row
@@ -686,12 +634,11 @@ app.post('/api/classify-context', async (req, res) => {
     } catch (error) {
       console.error('AI分類中にエラー:', error.message);
       
-      // エラー時のフォールバック
       const fallbackClassifications = performKeywordBasedClassification(text);
       const csvData = convertToCSVFormat(fallbackClassifications);
       
       res.json({ 
-        classifications: fallbackClassifications,
+        categories: fallbackClassifications,
         csv_format: {
           headers: csvData.headers,
           row: csvData.row
@@ -704,7 +651,7 @@ app.post('/api/classify-context', async (req, res) => {
     res.status(500).json({
       error: 'エラー',
       details: error.message,
-      classifications: [],
+      categories: [],
       csv_format: {
         headers: [],
         row: {}
@@ -713,7 +660,7 @@ app.post('/api/classify-context', async (req, res) => {
   }
 });
 
-// 写真解析APIを更新
+// 写真解析API
 app.post('/api/analyze-photo', async (req, res) => {
   try {
     console.log('=== 写真解析開始 ===');
@@ -730,9 +677,24 @@ app.post('/api/analyze-photo', async (req, res) => {
       });
     }
 
-    // Base64データの形式チェック
-    if (typeof image !== 'string' || !image.includes('base64,')) {
-      console.error('不正な画像データ形式:', typeof image);
+    // Base64データの形式チェック（修正版）
+    if (typeof image !== 'string') {
+      console.error('画像データが文字列ではありません:', typeof image);
+      return res.status(400).json({ 
+        error: '不正な画像データ形式です',
+        details: '画像データは文字列形式である必要があります'
+      });
+    }
+
+    // Base64データの抽出（data:image/... の形式と、直接Base64の両方に対応）
+    let base64Data;
+    if (image.includes('base64,')) {
+      base64Data = image.split('base64,')[1];
+    } else if (image.match(/^[A-Za-z0-9+/]+=*$/)) {
+      // 既にBase64形式の場合
+      base64Data = image;
+    } else {
+      console.error('Base64形式が認識できません');
       return res.status(400).json({ 
         error: '不正な画像データ形式です',
         details: '画像はBase64形式で送信してください'
@@ -740,12 +702,6 @@ app.post('/api/analyze-photo', async (req, res) => {
     }
 
     try {
-      // Base64文字列をバッファに変換（エラーハンドリング付き）
-      const base64Data = image.split('base64,')[1];
-      if (!base64Data) {
-        throw new Error('Base64データの抽出に失敗しました');
-      }
-
       const imageBuffer = Buffer.from(base64Data, 'base64');
       if (!imageBuffer || imageBuffer.length === 0) {
         throw new Error('画像バッファの生成に失敗しました');
@@ -760,7 +716,7 @@ app.post('/api/analyze-photo', async (req, res) => {
       const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
 
       // Gemini Vision APIによる解析
-      const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
       console.log('Gemini Vision API呼び出し開始');
       const result = await model.generateContent([
@@ -768,7 +724,7 @@ app.post('/api/analyze-photo', async (req, res) => {
         {
           inlineData: {
             mimeType: "image/jpeg",
-            data: imageBuffer
+            data: base64Data
           }
         }
       ]);
@@ -779,7 +735,6 @@ app.post('/api/analyze-photo', async (req, res) => {
       console.log('Gemini Vision応答受信成功');
 
       try {
-        // JSONレスポースのパース
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
           throw new Error('JSON形式の応答が見つかりません');
@@ -787,44 +742,48 @@ app.post('/api/analyze-photo', async (req, res) => {
 
         const analysis = JSON.parse(jsonMatch[0]);
         
-        // キーワードベース分類を追加
-        const keywordClassifications = performKeywordBasedClassification(analysis.description);
-        
-        // 分類結果を統合（重複を除去）
-        const allClassifications = [
-          ...(analysis.categories || []),
-          ...keywordClassifications
-        ].reduce((unique, item) => {
-          const exists = unique.some(u => 
-            u.category === item.category && 
-            u.text === item.text
+        // 分類結果の重複を防ぐため、キーワードベース分類は
+        // Gemini分類が失敗した場合のみ使用
+        let classifications = [];
+        if (analysis.categories && analysis.categories.length > 0) {
+          classifications = analysis.categories;
+        } else {
+          classifications = performKeywordBasedClassification(analysis.description);
+        }
+
+        // 重複除去（より厳密な比較）
+        const uniqueClassifications = classifications.reduce((unique, item) => {
+          const isDuplicate = unique.some(existing => 
+            existing.category === item.category && 
+            (
+              existing.text === item.text ||
+              existing.text.includes(item.text) ||
+              item.text.includes(existing.text)
+            )
           );
-          if (!exists) {
+          
+          if (!isDuplicate) {
             unique.push(item);
           }
           return unique;
         }, []);
 
         console.log('分類結果:', {
-          totalCategories: allClassifications.length,
-          categories: allClassifications.map(c => c.category)
+          totalCategories: uniqueClassifications.length,
+          categories: uniqueClassifications.map(c => c.category)
         });
 
-        // 写真データの保存
         const photoData = {
           processedImage: {
             data: `data:image/jpeg;base64,${processedImage.optimized}`,
             metadata: processedImage.metadata
           },
-          analysis: {
-            categories: allClassifications,
-            description: analysis.description,
-            detectedElements: analysis.detectedElements || []
-          },
+          categories: uniqueClassifications,
+          description: analysis.description,
+          detectedElements: analysis.detectedElements || [],
           timestamp: new Date().toISOString()
         };
 
-        // 写真をストレージに保存
         const photoId = photoStorage.addPhoto(photoData);
 
         res.json({
@@ -836,23 +795,20 @@ app.post('/api/analyze-photo', async (req, res) => {
         console.error('Gemini Vision応答のパースエラー:', parseError);
         console.error('受信した内容:', content);
         
-        // パース失敗時のフォールバック
-        const keywordClassifications = performKeywordBasedClassification(content);
+        // パース失敗時は直接キーワードベース分類を使用
+        const classifications = performKeywordBasedClassification(content);
         
         const fallbackPhotoData = {
           processedImage: {
             data: `data:image/jpeg;base64,${processedImage.optimized}`,
             metadata: processedImage.metadata
           },
-          analysis: {
-            categories: keywordClassifications,
-            description: content.substring(0, 200) + '...',
-            detectedElements: []
-          },
+          categories: classifications,
+          description: content.substring(0, 200) + '...',
+          detectedElements: [],
           timestamp: new Date().toISOString()
         };
 
-        // フォールバックデータを保存
         const photoId = photoStorage.addPhoto(fallbackPhotoData);
         
         res.json({
