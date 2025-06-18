@@ -1,5 +1,11 @@
-import React, { useState, useEffect} from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download } from 'lucide-react';
+
+
+const performAIClassification = async (text) => {
+  console.log('performAIClassification 呼び出し:', text);
+  // TODO: 必要に応じてAI分類APIを呼び出す処理を追加
+};
 
 function App() {
   const [storeName, setStoreName] = useState('');
