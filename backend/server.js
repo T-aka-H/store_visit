@@ -307,15 +307,20 @@ ${transcript}
 
 // テスト用モックAPI（緊急対応）
 app.post('/api/transcribe-mock', upload.single('audio'), async (req, res) => {
+  console.log('=== モックAPI呼び出し ===');
+  
   try {
-    console.log('モックAPI呼び出し');
-    
     if (!req.file) {
-      return res.status(400).json({ error: '音声ファイルが必要です' });
+      console.log('ファイルなしエラー');
+      return res.status(400).json({ 
+        error: '音声ファイルが必要です',
+        transcript: 'ファイルが見つかりません',
+        categorized_items: []
+      });
     }
 
     // ファイル情報をログ出力
-    console.log('ファイル情報:', {
+    console.log('モックAPI - ファイル情報:', {
       originalname: req.file?.originalname,
       mimetype: req.file?.mimetype,
       size: req.file?.size
@@ -323,28 +328,31 @@ app.post('/api/transcribe-mock', upload.single('audio'), async (req, res) => {
 
     // モック応答を返す
     const mockResponse = {
-      transcript: `音声ファイル（${req.file.mimetype}, ${Math.round(req.file.size/1024)}KB）を受信しました。実際の音声認識APIではここに文字起こし結果が表示されます。`,
-      categorized_items: [
-        {
-          category: '価格情報',
-          text: 'モックデータ: 商品価格について',
-          confidence: 0.9,
-          timestamp: new Date().toLocaleTimeString()
-        }
-      ]
+      transcript: `[モックAPI] 音声ファイル（${req.file.mimetype}, ${Math.round(req.file.size/1024)}KB）を正常に受信しました。このテキストはモックAPIからの応答です。実際のGemini APIではここに音声認識結果が表示されます。`,
+      categorized_items: []
     };
 
-    console.log('モックレスポンス:', mockResponse);
+    console.log('モック成功レスポンス:', mockResponse);
     res.json(mockResponse);
 
   } catch (error) {
     console.error('モックAPIエラー:', error);
     res.status(500).json({
       error: 'モックAPI処理エラー',
-      transcript: 'モックAPI処理中にエラーが発生しました',
+      transcript: `モックAPI処理中にエラーが発生しました: ${error.message}`,
       categorized_items: []
     });
   }
+});
+
+// 非常にシンプルなテストエンドポイント
+app.get('/api/test-mock', (req, res) => {
+  console.log('テストエンドポイント呼び出し');
+  res.json({
+    status: 'success',
+    message: 'モックAPIエンドポイントは正常に動作しています',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ヘルスチェック
