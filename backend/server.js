@@ -345,131 +345,34 @@ async function processPhotoAndCreateThumbnail(imageBuffer) {
   }
 }
 
-// 音声認識API（分類なし）
-app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
-  try {
-    console.log('=== 音声認識開始 ===');
-    
-    // ブラウザからの音声認識テキストを確認
-    const browserTranscript = req.body.transcript;
-    
-    if (browserTranscript && browserTranscript.trim()) {
-      console.log('ブラウザ音声認識結果:', browserTranscript);
-      
-      return res.json({
-        transcript: browserTranscript,
-        source: 'browser'
-      });
+// 写真ストレージの初期化（メモリ内）
+const photoStorage = {
+  photos: [],
+  addPhoto: function(photo) {
+    const photoId = Date.now().toString();
+    const photoData = {
+      id: photoId,
+      ...photo,
+      timestamp: new Date().toISOString()
+    };
+    this.photos.push(photoData);
+    return photoId;
+  },
+  getPhoto: function(id) {
+    return this.photos.find(p => p.id === id);
+  },
+  getAllPhotos: function() {
+    return [...this.photos];
+  },
+  deletePhoto: function(id) {
+    const index = this.photos.findIndex(p => p.id === id);
+    if (index !== -1) {
+      this.photos.splice(index, 1);
+      return true;
     }
-
-    // ブラウザでの音声認識が失敗した場合、Geminiをバックアップとして使用
-    if (!req.file) {
-      return res.status(400).json({ error: '音声ファイルまたはテキストが必要です' });
-    }
-
-    console.log('=== Geminiバックアップ処理開始 ===');
-    console.log('ファイル情報:', {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size
-    });
-
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const base64Audio = bufferToBase64(req.file.buffer);
-
-      const prompt = `以下の音声ファイルは店舗視察時の録音データです。
-日本語で正確に文字起こしを行ってください。
-聞き取れない場合は「音声が不明瞭でした」と回答してください。
-話者の口調や感情も可能な限り反映してください。`;
-
-      const result = await model.generateContent([
-        { text: prompt },
-        {
-          inlineData: {
-            mimeType: req.file.mimetype,
-            data: base64Audio
-          }
-        }
-      ]);
-
-      const response = await result.response;
-      const transcript = response.text().trim();
-
-      console.log('Geminiバックアップ成功');
-
-      res.json({
-        transcript: transcript,
-        source: 'gemini'
-      });
-
-    } catch (geminiError) {
-      console.error('Geminiバックアップ失敗:', geminiError);
-      
-      res.status(500).json({
-        error: '音声認識エラー',
-        transcript: `音声認識に失敗しました: ${geminiError.message}`
-      });
-    }
-
-  } catch (error) {
-    console.error('=== 全体エラー ===');
-    console.error('エラー名:', error.name);
-    console.error('エラーメッセージ:', error.message);
-    console.error('エラースタック:', error.stack);
-    console.error('=== エラー終了 ===');
-    
-    res.status(500).json({
-      error: '処理エラー',
-      details: error.message
-    });
+    return false;
   }
-});
-
-// テキスト分類API
-app.post('/api/classify', async (req, res) => {
-  try {
-    console.log('=== テキスト分類開始 ===');
-    const { text } = req.body;
-
-    if (!text || !text.trim()) {
-      return res.status(400).json({ 
-        error: 'テキストが必要です',
-        details: 'テキストが空です'
-      });
-    }
-
-    // キーワードベース分類を実行
-    const categorizedItems = performKeywordBasedClassification(text);
-
-    // 店舗名の抽出
-    const storeNameMatch = text.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
-    const storeName = storeNameMatch ? storeNameMatch[1] : '';
-
-    // CSV形式のデータを生成
-    const csvData = convertToCSVFormat(categorizedItems, storeName, []);
-
-    res.json({
-      categorized_items: categorizedItems,
-      csv_format: {
-        headers: csvData.headers,
-        row: csvData.row
-      }
-    });
-
-  } catch (error) {
-    console.error('=== 分類エラー ===');
-    console.error('エラー名:', error.name);
-    console.error('エラーメッセージ:', error.message);
-    console.error('エラースタック:', error.stack);
-    console.error('=== エラー終了 ===');
-    
-    res.status(500).json({
-      error: '分類処理エラー',
-      details: error.message
-    });
-  }
-});
+};
 
 // 写真解析APIを更新
 app.post('/api/analyze-photo', async (req, res) => {
@@ -497,12 +400,6 @@ app.post('/api/analyze-photo', async (req, res) => {
       });
     }
 
-    console.log('画像データ形式:', {
-      type: typeof image,
-      length: image.length,
-      isBase64: image.includes('base64,')
-    });
-
     try {
       // Base64文字列をバッファに変換（エラーハンドリング付き）
       const base64Data = image.split('base64,')[1];
@@ -515,180 +412,101 @@ app.post('/api/analyze-photo', async (req, res) => {
         throw new Error('画像バッファの生成に失敗しました');
       }
 
-      console.log('画像バッファ生成成功:', {
-        bufferLength: imageBuffer.length,
-        isBuffer: Buffer.isBuffer(imageBuffer)
-      });
-
       // 画像処理とサムネイル生成
       const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
 
       // Gemini Vision APIによる解析
-      if (!process.env.GEMINI_API_KEY) {
-        console.error('GEMINI_API_KEY が設定されていません');
-        return res.status(500).json({ error: 'API設定エラー' });
-      }
-
       const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
-
-      const prompt = `あなたは小売店舗の視察写真を分析する専門家です。
-この写真から店舗視察に関連する重要な情報を抽出し、分類してください。
-
-以下のカテゴリに関連する情報を抽出してください：
-
-価格情報:
-- 商品の価格、値段
-- セール、割引情報
-- 競合との価格比較
-- コスト関連の言及
-
-売り場情報:
-- 店舗レイアウト
-- 商品の陳列方法
-- 通路、棚の配置
-- 売り場の使い方
-
-客層・混雑度:
-- 来店客の特徴
-- 年齢層、性別
-- 混雑状況
-- 客数、客の動き
-
-商品・品揃え:
-- 取扱商品の種類
-- 品切れ、在庫状況
-- 商品の特徴
-- 品揃えの傾向
-
-店舗環境:
-- 店舗の雰囲気
-- 清潔さ、照明
-- 温度、空調
-- BGM、騒音レベル
-
-以下のJSON形式で回答してください：
-{
-  "categories": [
-    {
-      "category": "カテゴリ名",
-      "text": "該当する観察内容",
-      "confidence": 0.8  // 0.1-1.0の範囲で確信度を設定
-    }
-  ],
-  "description": "写真の詳細な説明（日本語）",
-  "detectedElements": [
-    "検出された要素1",
-    "検出された要素2"
-  ]
-}`;
-
-      try {
-        console.log('Gemini Vision API呼び出し開始');
-        
-        const result = await model.generateContent([
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: imageBuffer
-            }
+      const result = await model.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: imageBuffer
           }
-        ]);
-
-        const response = await result.response;
-        const content = response.text().trim();
-
-        console.log('Gemini Vision応答受信成功');
-
-        try {
-          // JSONレスポースのパース
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const analysis = JSON.parse(jsonMatch[0]);
-            
-            // キーワードベース分類を追加
-            const keywordClassifications = performKeywordBasedClassification(analysis.description);
-            
-            // 分類結果を統合（重複を除去）
-            const allClassifications = [
-              ...(analysis.categories || []),
-              ...keywordClassifications
-            ].reduce((unique, item) => {
-              const exists = unique.some(u => 
-                u.category === item.category && 
-                u.text === item.text
-              );
-              if (!exists) {
-                unique.push(item);
-              }
-              return unique;
-            }, []);
-
-            console.log('分類結果:', {
-              totalCategories: allClassifications.length,
-              categories: allClassifications.map(c => c.category)
-            });
-
-            // 分類結果を統合
-            const combinedAnalysis = {
-              categories: allClassifications,
-              description: analysis.description,
-              detectedElements: analysis.detectedElements || [],
-              processedImage: {
-                data: `data:image/jpeg;base64,${processedImage.optimized}`,
-                metadata: processedImage.metadata,
-                timestamp: new Date().toISOString()
-              }
-            };
-            
-            res.json(combinedAnalysis);
-          } else {
-            throw new Error('JSON形式の応答が見つかりません');
-          }
-
-        } catch (parseError) {
-          console.error('Gemini Vision応答のパースエラー:', parseError);
-          console.error('受信した内容:', content);
-          
-          // パース失敗時のフォールバック
-          const keywordClassifications = performKeywordBasedClassification(content);
-          
-          const fallbackAnalysis = {
-            categories: keywordClassifications,
-            description: content.substring(0, 200) + '...',
-            detectedElements: [],
-            processedImage: {
-              data: `data:image/jpeg;base64,${processedImage.optimized}`,
-              metadata: processedImage.metadata,
-              timestamp: new Date().toISOString()
-            }
-          };
-          
-          res.json(fallbackAnalysis);
         }
+      ]);
 
-      } catch (geminiError) {
-        console.error('Gemini Vision APIエラー:', geminiError);
-        throw new Error(`Gemini Vision API呼び出しエラー: ${geminiError.message}`);
-      }
+      const response = await result.response;
+      const content = response.text().trim();
 
-    } catch (imageError) {
-      console.error('画像処理エラー:', imageError);
-      return res.status(400).json({
-        error: '画像処理エラー',
-        details: imageError.message
+      // 解析結果のパースと保存
+      const analysis = JSON.parse(content.match(/\{[\s\S]*\}/)[0]);
+      
+      // 写真データの保存
+      const photoData = {
+        processedImage: {
+          data: `data:image/jpeg;base64,${processedImage.optimized}`,
+          metadata: processedImage.metadata
+        },
+        analysis: {
+          categories: analysis.categories || [],
+          description: analysis.description,
+          detectedElements: analysis.detectedElements || []
+        }
+      };
+
+      // 写真をストレージに保存
+      const photoId = photoStorage.addPhoto(photoData);
+
+      res.json({
+        id: photoId,
+        ...photoData
+      });
+
+    } catch (error) {
+      console.error('写真処理エラー:', error);
+      res.status(500).json({
+        error: '写真処理エラー',
+        details: error.message
       });
     }
 
   } catch (error) {
-    console.error('=== 写真解析エラー ===');
-    console.error('エラー名:', error.name);
-    console.error('エラーメッセージ:', error.message);
-    console.error('エラースタック:', error.stack);
-    console.error('=== エラー終了 ===');
-    
+    console.error('=== 全体エラー ===');
+    console.error(error);
     res.status(500).json({
       error: '処理エラー',
+      details: error.message
+    });
+  }
+});
+
+// 写真一覧取得API
+app.get('/api/photos', (req, res) => {
+  try {
+    const photos = photoStorage.getAllPhotos().map(photo => ({
+      id: photo.id,
+      timestamp: photo.timestamp,
+      analysis: photo.analysis,
+      thumbnail: photo.processedImage.data
+    }));
+
+    res.json({ photos });
+  } catch (error) {
+    console.error('写真一覧取得エラー:', error);
+    res.status(500).json({
+      error: '写真一覧の取得に失敗しました',
+      details: error.message
+    });
+  }
+});
+
+// 写真削除API
+app.delete('/api/photos/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = photoStorage.deletePhoto(id);
+
+    if (deleted) {
+      res.json({ message: '写真を削除しました', id });
+    } else {
+      res.status(404).json({ error: '写真が見つかりません', id });
+    }
+  } catch (error) {
+    console.error('写真削除エラー:', error);
+    res.status(500).json({
+      error: '写真の削除に失敗しました',
       details: error.message
     });
   }
@@ -697,36 +515,40 @@ app.post('/api/analyze-photo', async (req, res) => {
 // 写真データのエクスポートエンドポイントを更新
 app.post('/api/export-photos', async (req, res) => {
   try {
-    const { photos, includeImages } = req.body;
+    const { photoIds } = req.body;
     
-    if (!photos || !Array.isArray(photos)) {
-      return res.status(400).json({ error: '写真データが必要です' });
+    // 指定されたIDの写真を取得
+    let targetPhotos = [];
+    if (photoIds && Array.isArray(photoIds)) {
+      targetPhotos = photoIds.map(id => photoStorage.getPhoto(id)).filter(Boolean);
+    } else {
+      targetPhotos = photoStorage.getAllPhotos();
     }
 
-    // 写真のメタデータをJSONファイルとして準備
-    const metadata = photos.map(photo => ({
+    if (targetPhotos.length === 0) {
+      return res.status(400).json({ error: 'エクスポートする写真がありません' });
+    }
+
+    // 写真のメタデータを準備
+    const metadata = targetPhotos.map(photo => ({
       id: photo.id,
-      filename: `store_visit_photo_${photo.id}_${photo.timestamp}.jpg`,
-      category: photo.category,
-      description: photo.description,
+      filename: `store_visit_photo_${photo.id}.jpg`,
       timestamp: photo.timestamp,
-      location: photo.metadata?.location || null
+      categories: photo.analysis.categories.map(c => c.category).join(', '),
+      description: photo.analysis.description
     }));
 
-    // 写真データを含める場合
-    let photoFiles = [];
-    if (includeImages) {
-      photoFiles = photos.map(photo => ({
-        filename: `store_visit_photo_${photo.id}_${photo.timestamp}.jpg`,
-        data: photo.processedImage.data
-      }));
-    }
+    // 写真データを準備
+    const photoFiles = targetPhotos.map(photo => ({
+      filename: `store_visit_photo_${photo.id}.jpg`,
+      data: photo.processedImage.data
+    }));
 
     res.json({
-      message: '写真メタデータを出力しました',
+      message: '写真データを出力しました',
       metadata: metadata,
       photos: photoFiles,
-      total_photos: photos.length
+      total_photos: targetPhotos.length
     });
 
   } catch (error) {
