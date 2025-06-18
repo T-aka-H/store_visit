@@ -563,11 +563,11 @@ const StoreInspectionApp = () => {
             onClick={() => setUseMockApi(!useMockApi)}
             className={`flex items-center gap-3 px-6 py-4 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105 ${
               useMockApi 
-                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white' 
-                : 'bg-gradient-to-r from-gray-600 to-slate-600 text-gray-300'
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700' 
+                : 'bg-gradient-to-r from-gray-600 to-slate-600 text-gray-300 hover:from-gray-700 hover:to-slate-700'
             }`}
           >
-            <MessageCircle size={20} />
+            <Settings size={20} />
             {useMockApi ? 'モック ON' : 'モック OFF'}
           </button>
           
