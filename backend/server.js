@@ -283,67 +283,75 @@ app.post('/api/classify-context', async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
+    // テキストを文単位で分割（句点で区切る）
+    const sentences = text.split(/[。．.]\s*/).filter(s => s.trim());
+    console.log('分割された文章数:', sentences.length);
+
     const categoriesText = categories.map(cat => 
       `- ${cat.name}: ${cat.description}`
     ).join('\n');
 
-    const prompt = `以下のテキストを分析し、最も適切なカテゴリに分類してください。
+    const classifications = [];
 
-分析対象テキスト: "${text}"
+    // 各文章を個別に分類
+    for (const sentence of sentences) {
+      if (!sentence.trim()) continue;
+
+      const prompt = `以下の文章を分析し、最も適切なカテゴリに分類してください。
+
+分析対象文章: "${sentence.trim()}"
 
 利用可能カテゴリ:
 ${categoriesText}
 
 分類ルール:
-1. テキストの文脈と意味を理解して分類する
+1. 文章の文脈と意味を理解して分類する
 2. キーワードの有無ではなく、内容の本質で判断する
-3. 複数のカテゴリに該当する場合は、最も関連性の高いものを選ぶ
+3. 最も関連性の高いカテゴリを1つ選ぶ
 4. 分類理由を簡潔に説明する
-5. 信頼度を0.1〜1.0で評価する
+5. 信頼度を0.1〜1.0で評価する（確信度が高いほど1.0に近い値）
 
 以下のJSON形式で回答してください:
 {
-  "classifications": [
-    {
-      "category": "カテゴリ名",
-      "text": "分析対象テキスト",
-      "confidence": 0.9,
-      "reason": "分類理由の簡潔な説明"
-    }
-  ]
+  "classification": {
+    "category": "カテゴリ名",
+    "text": "分析対象文章",
+    "confidence": 0.9,
+    "reason": "分類理由の簡潔な説明"
+  }
 }
 
-該当するカテゴリがない場合は空の配列を返してください。`;
+該当するカテゴリがない場合は null を返してください。`;
 
-    console.log('Gemini API で文脈分析中...');
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const content = response.text();
-
-    console.log('Gemini文脈分析レスポンス:', content);
-
-    try {
-      // JSONを抽出・解析
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const classification = JSON.parse(jsonMatch[0]);
+      try {
+        console.log('文章を分析中:', sentence.substring(0, 50) + '...');
         
-        if (classification.classifications && Array.isArray(classification.classifications)) {
-          console.log('文脈分類成功:', classification.classifications);
-          res.json(classification);
-        } else {
-          console.log('有効な分類結果なし');
-          res.json({ classifications: [] });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const content = response.text();
+
+        // JSONを抽出・解析
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.classification && parsed.classification.category) {
+            classifications.push({
+              category: parsed.classification.category,
+              text: parsed.classification.text,
+              confidence: parsed.classification.confidence,
+              reason: parsed.classification.reason
+            });
+            console.log('分類成功:', parsed.classification.category);
+          }
         }
-      } else {
-        console.log('JSON形式が見つからない');
-        res.json({ classifications: [] });
+      } catch (error) {
+        console.error('文章の分類中にエラー:', error);
+        // 個別の文章の処理エラーは無視して続行
       }
-    } catch (parseError) {
-      console.error('JSON解析エラー:', parseError);
-      res.json({ classifications: [] });
     }
+
+    console.log('全文章の分類完了。結果数:', classifications.length);
+    res.json({ classifications });
 
   } catch (error) {
     console.error('AI文脈分類エラー:', error);
