@@ -90,61 +90,51 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         ]
       };
 
-      // 文脈を考慮した分類関数
-      function classifyWithContext(text, category, matchedKeywords) {
-        // 基本スコアの計算（キーワードマッチ数に基づく）
-        let score = Math.min(0.9, 0.5 + (matchedKeywords.length * 0.1));
-        
-        // 文脈による補正
-        const contextPatterns = {
-          '価格情報': [
-            /(\d+)円/, // 具体的な価格の言及
-            /[値価]段[がは]/, // 価格に関する評価
-            /([特安高])い/, // 価格の形容
-          ],
-          '売り場情報': [
-            /棚[にでが]/, // 棚に関する具体的な言及
-            /通路[がはで]/, // 通路に関する具体的な言及
-            /配置[がはで]/, // 配置に関する具体的な言及
-          ],
-          '客層・混雑度': [
-            /人[がが]?多い/, // 混雑状況
-            /客[がは]?([多少]な?い|来)/, // 客の様子
-            /([混空])いて/, // 混雑度の直接的な言及
-          ],
-          '商品・品揃え': [
-            /商品[がはを]/, // 商品に関する具体的な言及
-            /在庫[がはで]/, // 在庫状況
-            /品([切揃])れ/, // 品揃えの状況
-          ],
-          '店舗環境': [
-            /店[内舗][がはで]/, // 店舗環境への言及
-            /雰囲気[がはで]/, // 雰囲気への言及
-            /清潔[さで]/, // 清潔さへの言及
-          ]
-        };
-
-        // 文脈パターンのマッチをチェック
-        if (contextPatterns[category]) {
-          const contextMatches = contextPatterns[category].filter(pattern => 
-            pattern.test(text)
-          );
-          // 文脈マッチによるスコア補正
-          score += contextMatches.length * 0.1;
-        }
-
-        // 最終スコアの範囲を0.1-1.0に制限
-        return Math.min(1.0, Math.max(0.1, score));
-      }
-
       // 文章を文単位で分割する関数
       function splitIntoSentences(text) {
-        // 句点や感嘆符などで文を分割
-        const sentences = text
-          .split(/[。．.！!？?]/g)
-          .map(s => s.trim())
-          .filter(s => s.length > 0);  // 空の文を除外
+        // 1. 価格情報を一時的にマーク
+        let processedText = text.replace(/(\d+)円/g, '___PRICE___$1円___END___');
         
+        // 2. 店舗名を一時的にマーク
+        processedText = processedText.replace(/([\u3040-\u309Fー\u30A0-\u30FF\u4E00-\u9FAF]{2,}(?:店|ストア|マート|スーパー))/g, '___STORE___$1___END___');
+        
+        // 3. 数値+単位を一時的にマーク
+        processedText = processedText.replace(/(\d+)([坪平米㎡])/g, '___UNIT___$1$2___END___');
+
+        // 4. 文を分割（句点、感嘆符、疑問符に加えて、「です」「ます」などの文末表現も考慮）
+        const segments = processedText.split(/(?:[。．.！!？?]|(?:です|ます)(?![かがのを]))/g);
+
+        // 5. 各セグメントを整形して意味のある文に分割
+        const sentences = segments
+          .flatMap(segment => {
+            // マーカーを元に戻す
+            segment = segment
+              .replace(/___PRICE___/g, '')
+              .replace(/___STORE___/g, '')
+              .replace(/___UNIT___/g, '')
+              .replace(/___END___/g, '')
+              .trim();
+
+            if (!segment) return [];
+
+            // 価格情報を含む部分を分離
+            const priceMatches = segment.match(/[^、\s]+\d+円/g) || [];
+            const nonPriceText = segment
+              .replace(/[^、\s]+\d+円[、\s]*/g, '')
+              .trim();
+
+            const results = [];
+            if (nonPriceText) {
+              results.push(nonPriceText);
+            }
+            if (priceMatches.length > 0) {
+              results.push(priceMatches.join('、'));
+            }
+
+            return results;
+          })
+          .filter(s => s.length > 0);
+
         return sentences;
       }
 
