@@ -1,605 +1,343 @@
-import React, { useState, useRef } from 'react';
-import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle } from 'lucide-react';
+// server.js (本番版)
+const express = require('express');
+const multer = require('multer');
+const cors = require('cors');
+const path = require('path');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+require('dotenv').config();
 
-function App() {
-  const [storeName, setStoreName] = useState('');
-  const [categories, setCategories] = useState([
-    { name: '価格情報', items: [], description: '商品の価格、特売情報、価格比較に関する情報' },
-    { name: '売り場情報', items: [], description: '売り場のレイアウト、面積、陳列方法に関する情報' },
-    { name: '客層・混雑度', items: [], description: '来店客の年齢層、混雑状況、客動線に関する情報' },
-    { name: '商品・品揃え', items: [], description: '商品の種類、品揃え、欠品状況に関する情報' },
-    { name: '店舗環境', items: [], description: '清潔さ、照明、音楽、空調などの店舗環境に関する情報' }
-  ]);
-  const [transcript, setTranscript] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [audioChunks, setAudioChunks] = useState([]);
-  const [insights, setInsights] = useState('');
-  const [questionInput, setQuestionInput] = useState('');
-  const [qaPairs, setQaPairs] = useState([]);
-  const [isAnswering, setIsAnswering] = useState(false);
-  const [showAiFeatures, setShowAiFeatures] = useState(false);
-  const [showTextInput, setShowTextInput] = useState(false);
-  const [textInput, setTextInput] = useState('');
-  
-  const mediaRecorderRef = useRef(null);
-  const streamRef = useRef(null);
-  const apiEndpoint = 'https://store-visit-7cux.onrender.com/api/transcribe';
+const app = express();
+const PORT = process.env.PORT || 3001;
 
-  const startRecording = async () => {
-    try {
-      const constraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 16000,
-          sampleSize: 16
-        }
-      };
+// Gemini AI インスタンス
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-        throw new Error('HTTPSが必要です。セキュアな接続でアクセスしてください。');
-      }
+// ミドルウェア
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      let mimeType = 'audio/mp4';
-      const mimeTypes = [
-        'audio/mp4',
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/wav'
-      ];
-      
-      for (const type of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          mimeType = type;
-          break;
-        }
-      }
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: mimeType,
-        audioBitsPerSecond: 64000
-      });
-      mediaRecorderRef.current = mediaRecorder;
-      
-      const chunks = [];
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
-      
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: mimeType });
-        
-        if (audioBlob.size > 5 * 1024 * 1024) {
-          alert('録音ファイルが大きすぎます。短い音声で試してください。');
-          return;
-        }
-        
-        await processAudioWithBackend(audioBlob);
-        setAudioChunks([]);
-      };
-      
-      mediaRecorder.start();
-      setIsRecording(true);
-      setAudioChunks(chunks);
-      
-      setTimeout(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          stopRecording();
-        }
-      }, 30000);
-      
-    } catch (error) {
-      console.error('録音開始エラー:', error);
-      
-      let errorMessage = 'マイクアクセスに失敗しました。';
-      
-      if (error.name === 'NotAllowedError') {
-        errorMessage = 'マイクの許可が必要です。設定 > Safari > マイク で許可してください。';
-      } else if (error.name === 'NotFoundError') {
-        errorMessage = 'マイクが見つかりません。';
-      } else if (error.name === 'NotSupportedError') {
-        errorMessage = 'このブラウザでは音声録音がサポートされていません。音声ファイルアップロード機能をお使いください。';
-      }
-      
-      alert(errorMessage);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
+// ファイルアップロード設定
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB制限
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'audio/webm',
+      'audio/mp4',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/x-m4a',
+      'audio/m4a',
+      'audio/aac'
+    ];
     
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      console.log('非対応MIME型:', file.mimetype);
+      cb(new Error(`非対応の音声形式です: ${file.mimetype}`), false);
     }
-  };
+  }
+});
 
-  const processAudioWithBackend = async (audioBlob) => {
-    setIsProcessing(true);
-    
-    try {
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
-      formData.append('categories', JSON.stringify(categories));
-      
-      const response = await fetch(apiEndpoint, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API Error: ${response.status} - ${errorText}`);
-      }
-
-      const result = await response.json();
-      
-      if (result.transcript) {
-        setTranscript(prev => prev + result.transcript + '\n\n');
-      }
-      
-      if (result.categorized_items) {
-        setCategories(prevCategories => {
-          const updatedCategories = [...prevCategories];
-          
-          result.categorized_items.forEach(item => {
-            const categoryIndex = updatedCategories.findIndex(
-              cat => cat.name === item.category
-            );
-            
-            if (categoryIndex !== -1) {
-              updatedCategories[categoryIndex].items.push({
-                text: item.text,
-                confidence: item.confidence || 1.0,
-                timestamp: new Date().toLocaleTimeString()
-              });
-            }
-          });
-          
-          return updatedCategories;
-        });
-      }
-      
-    } catch (error) {
-      console.error('音声処理エラー:', error);
-      
-      let userMessage = '音声処理中にエラーが発生しました。';
-      
-      if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
-        userMessage = 'ネットワークエラーです。インターネット接続を確認してください。';
-      } else if (error.message.includes('413')) {
-        userMessage = 'ファイルサイズが大きすぎます。短い音声で試してください。';
-      } else if (error.message.includes('500')) {
-        userMessage = 'サーバーエラーです。しばらく時間をおいて再試行してください。';
-      }
-      
-      alert(userMessage);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      await processAudioWithBackend(file);
-      event.target.value = '';
-    }
-  };
-
-  const clearData = () => {
-    setTranscript('');
-    setCategories(categories.map(cat => ({ ...cat, items: [] })));
-    setInsights('');
-    setQaPairs([]);
-    setQuestionInput('');
-    setTextInput('');
-  };
-
-  const generateInsights = async () => {
-    if (categories.every(cat => cat.items.length === 0) && !transcript.trim()) {
-      alert('分析対象のデータがありません。まず音声録音を行ってください。');
-      return;
-    }
-    
-    setIsProcessing(true);
-    
-    try {
-      const insightData = {
-        storeName: storeName || '未設定',
-        categories: categories.filter(cat => cat.items.length > 0).map(cat => ({
-          name: cat.name,
-          items: cat.items.map(item => item.text)
-        })),
-        transcript: transcript
-      };
-
-      const response = await fetch('https://store-visit-7cux.onrender.com/api/generate-insights', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(insightData)
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      setInsights(result.insights);
-      
-    } catch (error) {
-      console.error('インサイト生成エラー:', error);
-      alert(`インサイト生成中にエラーが発生しました: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const askQuestion = async () => {
-    if (!questionInput.trim()) return;
-    
-    setIsAnswering(true);
-    
-    try {
-      const questionData = {
-        question: questionInput,
-        storeName: storeName || '未設定',
-        categories: categories.filter(cat => cat.items.length > 0).map(cat => ({
-          name: cat.name,
-          items: cat.items.map(item => item.text)
-        })),
-        transcript: transcript
-      };
-
-      const response = await fetch('https://store-visit-7cux.onrender.com/api/ask-question', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(questionData)
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      
-      setQaPairs(prev => [...prev, {
-        question: questionInput,
-        answer: result.answer,
-        timestamp: new Date().toLocaleTimeString()
-      }]);
-      
-      setQuestionInput('');
-      
-    } catch (error) {
-      console.error('質問応答エラー:', error);
-      alert(`質問処理中にエラーが発生しました: ${error.message}`);
-    } finally {
-      setIsAnswering(false);
-    }
-  };
-
-  const processTextInput = async () => {
-    if (!textInput.trim()) return;
-    
-    setIsProcessing(true);
-    
-    try {
-      setTranscript(prev => prev + textInput + '\n\n');
-      
-      const newItems = [];
-      categories.forEach(category => {
-        const keywords = category.name.includes('価格') ? ['円', '価格', '値段', '安い', '高い'] :
-                        category.name.includes('売り場') ? ['売り場', 'レイアウト', '陳列', '棚'] :
-                        category.name.includes('客層') ? ['客', 'お客', '混雑', '空い'] :
-                        category.name.includes('商品') ? ['商品', '品揃え', '欠品'] :
-                        category.name.includes('店舗') ? ['店舗', '立地', '駐車場', '清潔'] : [];
-        
-        keywords.forEach(keyword => {
-          if (textInput.includes(keyword)) {
-            newItems.push({
-              category: category.name,
-              text: textInput,
-              confidence: 0.8
-            });
-          }
-        });
-      });
-      
-      if (newItems.length > 0) {
-        setCategories(prevCategories => {
-          const updatedCategories = [...prevCategories];
-          
-          newItems.forEach(item => {
-            const categoryIndex = updatedCategories.findIndex(
-              cat => cat.name === item.category
-            );
-            
-            if (categoryIndex !== -1) {
-              updatedCategories[categoryIndex].items.push({
-                text: item.text,
-                confidence: item.confidence,
-                timestamp: new Date().toLocaleTimeString()
-              });
-            }
-          });
-          
-          return updatedCategories;
-        });
-      }
-      
-      setTextInput('');
-      alert('テキストが正常に処理されました！');
-      
-    } catch (error) {
-      console.error('テキスト処理エラー:', error);
-      alert('テキスト処理中にエラーが発生しました');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800 text-gray-100">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* ヘッダー */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 bg-clip-text text-transparent mb-4">
-            🏪 AI店舗視察アシスタント
-          </h1>
-          <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
-            音声録音で効率的な店舗視察を実現。AIが自動で音声を認識・分類し、ビジネスインサイトを生成します。
-          </p>
-        </div>
-
-        {/* 店舗名入力 */}
-        <div className="mb-8">
-          <label className="block text-lg font-semibold text-gray-200 mb-3">
-            📍 視察店舗名
-          </label>
-          <input
-            type="text"
-            value={storeName}
-            onChange={(e) => setStoreName(e.target.value)}
-            placeholder="例: イオン〇〇店、ドン・キホーテ〇〇店"
-            className="w-full px-6 py-4 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-800/70 text-gray-100 placeholder-gray-400 text-lg"
-          />
-        </div>
-
-        {/* コントロールボタン */}
-        <div className="flex flex-wrap gap-4 mb-8">
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={isProcessing}
-            className={`flex items-center gap-3 px-8 py-4 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl ${
-              isRecording 
-                ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white hover:from-red-700 hover:to-pink-700' 
-                : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-700 hover:to-blue-700'
-            } ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
-          >
-            {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
-            {isRecording ? '録音停止' : '録音開始'}
-          </button>
-          
-          <label className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-xl hover:scale-105">
-            <Upload size={20} />
-            音声ファイル
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={handleFileUpload}
-              className="hidden"
-              disabled={isProcessing}
-            />
-          </label>
-          
-          <button
-            onClick={() => setShowTextInput(!showTextInput)}
-            className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-xl hover:from-yellow-700 hover:to-orange-700 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
-          >
-            <MessageCircle size={20} />
-            テキスト入力
-          </button>
-          
-          <button
-            onClick={clearData}
-            disabled={isProcessing}
-            className="flex items-center gap-3 px-6 py-4 bg-slate-700 text-gray-300 rounded-xl hover:bg-slate-600 hover:text-white transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl hover:scale-105"
-          >
-            <Trash2 size={20} />
-            データクリア
-          </button>
-        </div>
-
-        {/* テキスト入力モード */}
-        {showTextInput && (
-          <div className="mb-8 p-6 bg-slate-700/50 rounded-xl border border-slate-600">
-            <h3 className="text-lg font-semibold text-gray-200 mb-4">テキスト入力モード</h3>
-            <textarea
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              placeholder="視察内容をテキストで入力してください..."
-              className="w-full h-32 px-4 py-3 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-800/70 text-gray-100 placeholder-gray-400 resize-none"
-            />
-            <button
-              onClick={processTextInput}
-              disabled={!textInput.trim() || isProcessing}
-              className="mt-4 px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 transition-all duration-200"
-            >
-              {isProcessing ? '処理中...' : 'テキストを分析'}
-            </button>
-          </div>
-        )}
-
-        {/* 処理状況表示 */}
-        {(isRecording || isProcessing) && (
-          <div className="mb-8 p-6 bg-gradient-to-r from-blue-900/50 to-purple-900/50 rounded-xl border border-blue-500/30">
-            <div className="flex items-center gap-4">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
-              <span className="text-cyan-300 font-medium">
-                {isRecording ? '🎤 録音中... 録音停止ボタンを押して終了してください' : '🔄 音声を処理中... しばらくお待ちください'}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* カテゴリ別結果表示 */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-          {categories.map((category, index) => (
-            <div key={index} className="bg-slate-800/60 rounded-xl p-6 border border-slate-600 hover:border-slate-500 transition-all duration-200">
-              <h3 className="text-xl font-bold text-cyan-400 mb-4 flex items-center gap-2">
-                <span className="text-2xl">
-                  {category.name.includes('価格') ? '💰' : 
-                   category.name.includes('売り場') ? '🏬' : 
-                   category.name.includes('客層') ? '👥' : 
-                   category.name.includes('商品') ? '📦' : '🏪'}
-                </span>
-                {category.name}
-              </h3>
-              <div className="space-y-3">
-                {category.items.length > 0 ? (
-                  category.items.map((item, itemIndex) => (
-                    <div key={itemIndex} className="bg-slate-900/50 rounded-lg p-4 border-l-4 border-cyan-500">
-                      <p className="text-gray-200 leading-relaxed">{item.text}</p>
-                      <div className="mt-2 flex justify-between items-center text-xs text-gray-400">
-                        <span>信頼度: {Math.round(item.confidence * 100)}%</span>
-                        <span>{item.timestamp}</span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-gray-400 italic text-center py-8">まだデータがありません</p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* 音声ログ */}
-        {transcript && (
-          <div className="mb-12">
-            <h2 className="text-2xl font-bold text-gray-200 mb-6 flex items-center gap-3">
-              🎤 音声ログ
-            </h2>
-            <div className="bg-slate-800/60 rounded-xl p-6 border border-slate-600">
-              <div className="whitespace-pre-wrap text-gray-200 leading-relaxed max-h-64 overflow-y-auto">
-                {transcript}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* AI機能セクション */}
-        <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-xl p-8 border border-purple-500/30 mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-3xl font-bold text-transparent bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text">
-              🧠 AI分析機能
-            </h2>
-            <button
-              onClick={() => setShowAiFeatures(!showAiFeatures)}
-              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl hover:from-purple-700 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl"
-            >
-              {showAiFeatures ? '非表示' : '表示'}
-            </button>
-          </div>
-
-          {showAiFeatures && (
-            <div className="space-y-8">
-              {/* インサイト生成 */}
-              <div>
-                <div className="flex items-center gap-4 mb-4">
-                  <button
-                    onClick={generateInsights}
-                    disabled={isProcessing}
-                    className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
-                  >
-                    <Brain size={24} />
-                    {isProcessing ? 'AI分析中...' : 'ビジネスインサイト生成'}
-                  </button>
-                </div>
-
-                {insights && (
-                  <div className="bg-slate-800/60 rounded-xl p-6 border border-emerald-500/30">
-                    <h3 className="text-xl font-bold text-emerald-400 mb-4">📊 AI分析結果</h3>
-                    <div className="whitespace-pre-wrap text-gray-200 leading-relaxed">
-                      {insights}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 質問応答 */}
-              <div>
-                <h3 className="text-xl font-bold text-cyan-400 mb-4">💬 データに関する質問</h3>
-                <div className="flex gap-4 mb-4">
-                  <input
-                    type="text"
-                    value={questionInput}
-                    onChange={(e) => setQuestionInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && askQuestion()}
-                    placeholder="例: この店舗の強みは何ですか？改善点は？"
-                    className="flex-1 px-6 py-4 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-800/70 text-gray-100 placeholder-gray-400"
-                  />
-                  <button
-                    onClick={askQuestion}
-                    disabled={!questionInput.trim() || isAnswering}
-                    className="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 transition-all duration-200 shadow-lg hover:shadow-xl"
-                  >
-                    {isAnswering ? '回答中...' : '質問する'}
-                  </button>
-                </div>
-
-                {/* 質問応答履歴 */}
-                {qaPairs.length > 0 && (
-                  <div className="space-y-4">
-                    {qaPairs.map((qa, index) => (
-                      <div key={index} className="bg-slate-800/60 rounded-xl p-6 border border-slate-600">
-                        <div className="mb-4">
-                          <div className="flex items-start gap-3 mb-2">
-                            <span className="text-cyan-400 font-semibold">❓ 質問:</span>
-                            <span className="text-gray-200">{qa.question}</span>
-                          </div>
-                          <div className="text-xs text-gray-400">{qa.timestamp}</div>
-                        </div>
-                        <div className="border-l-4 border-emerald-500 pl-4">
-                          <div className="flex items-start gap-3 mb-2">
-                            <span className="text-emerald-400 font-semibold">💡 回答:</span>
-                          </div>
-                          <div className="text-gray-200 leading-relaxed whitespace-pre-wrap">
-                            {qa.answer}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* フッター */}
-        <div className="text-center text-gray-400 pt-8 border-t border-slate-700">
-          <p>🚀 Powered by Gemini AI • 効率的な店舗視察をサポート</p>
-        </div>
-      </div>
-    </div>
-  );
+// 音声を Base64 に変換するヘルパー関数
+function bufferToBase64(buffer) {
+  return buffer.toString('base64');
 }
 
-export default App;
+// 音声認識・分類API
+app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+  try {
+    console.log('=== 音声認識リクエスト開始 ===');
+    console.log('ファイル情報:', {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size
+    });
+    
+    if (!req.file) {
+      return res.status(400).json({ error: '音声ファイルが必要です' });
+    }
+
+    // APIキーの存在確認
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY が設定されていません');
+      return res.status(500).json({ 
+        error: 'API設定エラー',
+        transcript: 'API設定に問題があります',
+        categorized_items: []
+      });
+    }
+
+    const categories = JSON.parse(req.body.categories || '[]');
+    const audioBuffer = req.file.buffer;
+    let mimeType = req.file.mimetype;
+
+    console.log('カテゴリ数:', categories.length);
+    console.log('音声ファイルサイズ:', audioBuffer.length);
+
+    // iPhone特有のMIME型を標準化
+    if (mimeType === 'audio/mp4' || mimeType === 'audio/m4a' || mimeType === 'audio/x-m4a') {
+      console.log('iPhone音声ファイルを検出、標準形式として処理');
+      mimeType = 'audio/mp4';
+    }
+
+    // 音声をBase64に変換
+    const base64Audio = bufferToBase64(audioBuffer);
+    console.log('Base64変換完了, 長さ:', base64Audio.length);
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    // シンプルなプロンプト
+    const prompt = `この音声ファイルの内容を日本語で文字起こししてください。
+
+音声が聞き取れない場合は「音声が不明瞭でした」と回答してください。
+マークダウンやJSON形式は使わず、普通の文章で回答してください。`;
+
+    console.log('Gemini APIリクエスト送信中...');
+    console.log('使用MIME型:', mimeType);
+    
+    try {
+      const result = await model.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: base64Audio
+          }
+        }
+      ]);
+
+      console.log('Gemini APIレスポンス受信');
+      const response = await result.response;
+      const content = response.text();
+
+      console.log('=== Gemini API生レスポンス ===');
+      console.log('レスポンス長:', content.length);
+      console.log('レスポンス内容:', content);
+      console.log('=== レスポンス終了 ===');
+
+      // プレーンテキストとして処理
+      const finalResult = {
+        transcript: content.trim() || '音声認識に失敗しました',
+        categorized_items: []
+      };
+
+      console.log('最終レスポンス:', finalResult);
+      res.json(finalResult);
+
+    } catch (geminiError) {
+      console.error('Gemini API エラー:', geminiError);
+      
+      // Gemini API固有のエラーハンドリング
+      if (geminiError.message.includes('SAFETY')) {
+        res.json({
+          transcript: '音声の内容が安全フィルターにより処理できませんでした',
+          categorized_items: []
+        });
+      } else if (geminiError.message.includes('QUOTA_EXCEEDED')) {
+        res.status(429).json({
+          error: 'API利用制限に達しました',
+          transcript: 'API利用制限のため処理できませんでした',
+          categorized_items: []
+        });
+      } else {
+        res.status(500).json({
+          error: 'Gemini API エラー',
+          transcript: `API処理エラー: ${geminiError.message}`,
+          categorized_items: []
+        });
+      }
+    }
+
+  } catch (error) {
+    console.error('=== 全体エラー ===');
+    console.error('エラー名:', error.name);
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
+    console.error('=== エラー終了 ===');
+    
+    res.status(500).json({ 
+      error: '音声認識処理中にエラーが発生しました',
+      details: `${error.name}: ${error.message}`,
+      transcript: `処理エラー: ${error.message}`,
+      categorized_items: []
+    });
+  }
+});
+
+// AI インサイト生成API
+app.post('/api/generate-insights', async (req, res) => {
+  try {
+    console.log('インサイト生成リクエスト受信');
+    console.log('リクエストボディ:', JSON.stringify(req.body, null, 2));
+    
+    const { storeName, categories, transcript } = req.body;
+
+    if ((!categories || categories.length === 0) && (!transcript || transcript.trim() === '')) {
+      console.log('分析対象データなし');
+      return res.status(400).json({ error: '分析対象のデータがありません' });
+    }
+
+    // APIキー確認
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY が設定されていません');
+      return res.status(500).json({ 
+        error: 'API設定エラー',
+        insights: 'API設定に問題があります。管理者にお問い合わせください。'
+      });
+    }
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    // より安全で確実なプロンプト
+    const categoriesText = categories && categories.length > 0 
+      ? categories.map(cat => `### ${cat.name}\n${cat.items.join('\n')}`).join('\n\n')
+      : '（カテゴリデータなし）';
+
+    const transcriptText = transcript && transcript.trim() 
+      ? transcript 
+      : '（音声ログなし）';
+
+    const prompt = `あなたは小売業界の専門コンサルタントです。以下の店舗視察データを分析し、ビジネスインサイトを生成してください。
+
+店舗名: ${storeName || '未設定'}
+
+視察データ:
+${categoriesText}
+
+音声ログ:
+${transcriptText}
+
+以下の観点から簡潔に分析してください:
+
+1. 店舗の強みと弱み
+2. 改善提案（優先度付き）
+3. 顧客体験の評価
+4. 収益性向上のアイデア
+5. 注意すべきリスク要因
+
+各項目について具体的で実行可能な内容で回答してください。データが不足している場合は、一般的な小売業の観点から推奨事項を提示してください。`;
+
+    console.log('Gemini APIリクエスト送信中...');
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const insights = response.text();
+
+    console.log('インサイト生成完了, 長さ:', insights.length);
+    res.json({ insights });
+
+  } catch (error) {
+    console.error('インサイト生成エラー詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
+    // より詳細なエラーハンドリング
+    let userMessage = 'インサイト生成中にエラーが発生しました。';
+    
+    if (error.message.includes('SAFETY')) {
+      userMessage = '安全フィルターによりインサイトを生成できませんでした。';
+    } else if (error.message.includes('QUOTA_EXCEEDED')) {
+      userMessage = 'API利用制限に達しました。しばらく時間をおいて再試行してください。';
+    } else if (error.message.includes('INVALID_ARGUMENT')) {
+      userMessage = 'データ形式に問題があります。録音内容を確認してください。';
+    }
+    
+    res.status(500).json({ 
+      error: userMessage,
+      details: error.message,
+      insights: `エラーが発生したため、インサイトを生成できませんでした。\n\nエラー詳細: ${error.message}\n\n別の方法でデータを入力し直すか、しばらく時間をおいて再試行してください。`
+    });
+  }
+});
+
+// 質問応答API
+app.post('/api/ask-question', async (req, res) => {
+  try {
+    console.log('質問応答リクエスト受信');
+    
+    const { question, storeName, categories, transcript } = req.body;
+
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: '質問が必要です' });
+    }
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `
+あなたは店舗視察データの専門アナリストです。以下のデータに基づいて質問に回答してください。
+
+店舗名: ${storeName}
+
+視察データ:
+${categories.map(cat => `
+### ${cat.name}
+${cat.items.join('\n')}
+`).join('\n')}
+
+音声ログ:
+${transcript}
+
+質問: ${question}
+
+回答の際は以下を心がけてください:
+- データに基づいた具体的な回答
+- 推測の場合は明示する
+- 実用的で actionable な内容
+- 簡潔で分かりやすい表現
+- データが不足している場合は正直に伝える
+
+回答:
+`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const answer = response.text();
+
+    console.log('質問応答完了');
+    res.json({ answer });
+
+  } catch (error) {
+    console.error('質問応答エラー詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
+    res.status(500).json({ 
+      error: '質問応答処理中にエラーが発生しました',
+      details: error.message,
+      answer: 'エラーが発生したため、質問に回答できませんでした。'
+    });
+  }
+});
+
+// ヘルスチェック
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    gemini_configured: !!process.env.GEMINI_API_KEY 
+  });
+});
+
+// エラーハンドリング
+app.use((error, req, res, next) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({ 
+    error: 'サーバー内部エラーが発生しました',
+    details: error.message 
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Gemini API Key configured: ${!!process.env.GEMINI_API_KEY}`);
+});
