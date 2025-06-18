@@ -563,126 +563,218 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 app.post('/api/analyze-photo', async (req, res) => {
   try {
     console.log('=== 写真解析開始 ===');
+    console.log('リクエストボディのキー:', Object.keys(req.body));
+    
     const { image, categories } = req.body;
 
+    // 画像データの厳密なバリデーション
     if (!image) {
-      return res.status(400).json({ error: '写真データが必要です' });
+      console.error('画像データが未定義です');
+      return res.status(400).json({ 
+        error: '写真データが必要です',
+        details: '画像データが送信されていません'
+      });
     }
 
-    // Base64文字列をバッファに変換
-    const imageBuffer = Buffer.from(image.split(',')[1], 'base64');
-
-    // 画像処理とサムネイル生成
-    const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
-
-    // Gemini Vision APIによる解析
-    if (!process.env.GEMINI_API_KEY) {
-      console.error('GEMINI_API_KEY が設定されていません');
-      return res.status(500).json({ error: 'API設定エラー' });
+    // Base64データの形式チェック
+    if (typeof image !== 'string' || !image.includes('base64,')) {
+      console.error('不正な画像データ形式:', typeof image);
+      return res.status(400).json({ 
+        error: '不正な画像データ形式です',
+        details: '画像はBase64形式で送信してください'
+      });
     }
 
-    const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+    console.log('画像データ形式:', {
+      type: typeof image,
+      length: image.length,
+      isBase64: image.includes('base64,')
+    });
 
-    const prompt = `あなたは小売店舗の視察写真を分析する専門家です。
-この写真から店舗視察に関連する重要な情報を抽出し、最も適切なカテゴリに分類してください。
+    try {
+      // Base64文字列をバッファに変換（エラーハンドリング付き）
+      const base64Data = image.split('base64,')[1];
+      if (!base64Data) {
+        throw new Error('Base64データの抽出に失敗しました');
+      }
 
-利用可能なカテゴリ:
-${categories ? categories.join('\n') : `
-- 価格情報（商品価格、セール情報など）
-- 売り場情報（レイアウト、陳列方法など）
-- 客層・混雑度（来店客の特徴、混雑状況など）
-- 商品・品揃え（商品の種類、在庫状況など）
-- 店舗環境（店舗の雰囲気、清潔さなど）`}
+      const imageBuffer = Buffer.from(base64Data, 'base64');
+      if (!imageBuffer || imageBuffer.length === 0) {
+        throw new Error('画像バッファの生成に失敗しました');
+      }
 
-以下の点に注目して分析してください：
-1. 写真に写っている主な要素（商品、設備、人物など）
-2. 店舗環境や雰囲気
-3. レイアウトや陳列方法
-4. 価格表示や販促物
-5. 混雑状況や客層の特徴
+      console.log('画像バッファ生成成功:', {
+        bufferLength: imageBuffer.length,
+        isBuffer: Buffer.isBuffer(imageBuffer)
+      });
+
+      // 画像処理とサムネイル生成
+      const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
+
+      // Gemini Vision APIによる解析
+      if (!process.env.GEMINI_API_KEY) {
+        console.error('GEMINI_API_KEY が設定されていません');
+        return res.status(500).json({ error: 'API設定エラー' });
+      }
+
+      const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+
+      const prompt = `あなたは小売店舗の視察写真を分析する専門家です。
+この写真から店舗視察に関連する重要な情報を抽出し、分類してください。
+
+以下のカテゴリに関連する情報を抽出してください：
+
+価格情報:
+- 商品の価格、値段
+- セール、割引情報
+- 競合との価格比較
+- コスト関連の言及
+
+売り場情報:
+- 店舗レイアウト
+- 商品の陳列方法
+- 通路、棚の配置
+- 売り場の使い方
+
+客層・混雑度:
+- 来店客の特徴
+- 年齢層、性別
+- 混雑状況
+- 客数、客の動き
+
+商品・品揃え:
+- 取扱商品の種類
+- 品切れ、在庫状況
+- 商品の特徴
+- 品揃えの傾向
+
+店舗環境:
+- 店舗の雰囲気
+- 清潔さ、照明
+- 温度、空調
+- BGM、騒音レベル
 
 以下のJSON形式で回答してください：
 {
-  "suggestedCategory": "最も適切なカテゴリ名",
+  "categories": [
+    {
+      "category": "カテゴリ名",
+      "text": "該当する観察内容",
+      "confidence": 0.8  // 0.1-1.0の範囲で確信度を設定
+    }
+  ],
   "description": "写真の詳細な説明（日本語）",
-  "confidence": 0.8,  // 0.1-1.0の範囲で確信度を設定
   "detectedElements": [
     "検出された要素1",
     "検出された要素2"
   ]
 }`;
 
-    try {
-      const result = await model.generateContent([
-        { text: prompt },
-        {
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: imageBuffer
-          }
-        }
-      ]);
-
-      const response = await result.response;
-      const content = response.text().trim();
-
-      console.log('Gemini Vision応答:', content);
-
       try {
-        // JSONレスポースのパース
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const analysis = JSON.parse(jsonMatch[0]);
+        console.log('Gemini Vision API呼び出し開始');
+        
+        const result = await model.generateContent([
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: imageBuffer
+            }
+          }
+        ]);
+
+        const response = await result.response;
+        const content = response.text().trim();
+
+        console.log('Gemini Vision応答受信成功');
+
+        try {
+          // JSONレスポースのパース
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const analysis = JSON.parse(jsonMatch[0]);
+            
+            // キーワードベース分類を追加
+            const keywordClassifications = performKeywordBasedClassification(analysis.description);
+            
+            // 分類結果を統合（重複を除去）
+            const allClassifications = [
+              ...(analysis.categories || []),
+              ...keywordClassifications
+            ].reduce((unique, item) => {
+              const exists = unique.some(u => 
+                u.category === item.category && 
+                u.text === item.text
+              );
+              if (!exists) {
+                unique.push(item);
+              }
+              return unique;
+            }, []);
+
+            console.log('分類結果:', {
+              totalCategories: allClassifications.length,
+              categories: allClassifications.map(c => c.category)
+            });
+
+            // 分類結果を統合
+            const combinedAnalysis = {
+              categories: allClassifications,
+              description: analysis.description,
+              detectedElements: analysis.detectedElements || [],
+              processedImage: {
+                data: `data:image/jpeg;base64,${processedImage.optimized}`,
+                metadata: processedImage.metadata,
+                timestamp: new Date().toISOString()
+              }
+            };
+            
+            res.json(combinedAnalysis);
+          } else {
+            throw new Error('JSON形式の応答が見つかりません');
+          }
+
+        } catch (parseError) {
+          console.error('Gemini Vision応答のパースエラー:', parseError);
+          console.error('受信した内容:', content);
           
-          // キーワードベース分類を追加
-          const additionalClassifications = performKeywordBasedClassification(analysis.description);
+          // パース失敗時のフォールバック
+          const keywordClassifications = performKeywordBasedClassification(content);
           
-          // 分類結果を統合
-          const combinedAnalysis = {
-            ...analysis,
-            additionalClassifications,
-            // 処理済み画像データを追加
+          const fallbackAnalysis = {
+            categories: keywordClassifications,
+            description: content.substring(0, 200) + '...',
+            detectedElements: [],
             processedImage: {
               data: `data:image/jpeg;base64,${processedImage.optimized}`,
-              metadata: processedImage.metadata
+              metadata: processedImage.metadata,
+              timestamp: new Date().toISOString()
             }
           };
           
-          res.json(combinedAnalysis);
-        } else {
-          throw new Error('JSON形式の応答が見つかりません');
+          res.json(fallbackAnalysis);
         }
 
-      } catch (parseError) {
-        console.error('Gemini Vision応答のパースエラー:', parseError);
-        
-        // パース失敗時のフォールバック
-        const fallbackAnalysis = {
-          suggestedCategory: '店舗環境',
-          description: content.substring(0, 200) + '...',
-          confidence: 0.5,
-          detectedElements: [],
-          additionalClassifications: performKeywordBasedClassification(content),
-          // 処理済み画像データを追加
-          processedImage: {
-            data: `data:image/jpeg;base64,${processedImage.optimized}`,
-            metadata: processedImage.metadata
-          }
-        };
-        
-        res.json(fallbackAnalysis);
+      } catch (geminiError) {
+        console.error('Gemini Vision APIエラー:', geminiError);
+        throw new Error(`Gemini Vision API呼び出しエラー: ${geminiError.message}`);
       }
 
-    } catch (geminiError) {
-      console.error('Gemini Vision APIエラー:', geminiError);
-      res.status(500).json({
-        error: '写真解析エラー',
-        details: geminiError.message
+    } catch (imageError) {
+      console.error('画像処理エラー:', imageError);
+      return res.status(400).json({
+        error: '画像処理エラー',
+        details: imageError.message
       });
     }
 
   } catch (error) {
-    console.error('写真解析エラー:', error);
+    console.error('=== 写真解析エラー ===');
+    console.error('エラー名:', error.name);
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
+    console.error('=== エラー終了 ===');
+    
     res.status(500).json({
       error: '処理エラー',
       details: error.message
@@ -690,10 +782,10 @@ ${categories ? categories.join('\n') : `
   }
 });
 
-// 写真データのエクスポートエンドポイントを追加
+// 写真データのエクスポートエンドポイントを更新
 app.post('/api/export-photos', async (req, res) => {
   try {
-    const { photos } = req.body;
+    const { photos, includeImages } = req.body;
     
     if (!photos || !Array.isArray(photos)) {
       return res.status(400).json({ error: '写真データが必要です' });
@@ -702,22 +794,32 @@ app.post('/api/export-photos', async (req, res) => {
     // 写真のメタデータをJSONファイルとして準備
     const metadata = photos.map(photo => ({
       id: photo.id,
-      filename: photo.name,
+      filename: `store_visit_photo_${photo.id}_${photo.timestamp}.jpg`,
       category: photo.category,
       description: photo.description,
       timestamp: photo.timestamp,
       location: photo.metadata?.location || null
     }));
 
+    // 写真データを含める場合
+    let photoFiles = [];
+    if (includeImages) {
+      photoFiles = photos.map(photo => ({
+        filename: `store_visit_photo_${photo.id}_${photo.timestamp}.jpg`,
+        data: photo.processedImage.data
+      }));
+    }
+
     res.json({
       message: '写真メタデータを出力しました',
       metadata: metadata,
+      photos: photoFiles,
       total_photos: photos.length
     });
 
   } catch (error) {
     console.error('写真エクスポートエラー:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       error: '写真のエクスポート中にエラーが発生しました',
       details: error.message
     });
