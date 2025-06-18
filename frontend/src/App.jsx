@@ -463,6 +463,81 @@ const convertCsvToCategories = (csvData) => {
   });
 };
 
+const PhotoCard = ({ photo, onDelete }) => {
+  const handleDownload = async () => {
+    try {
+      const response = await fetch(`/api/photos/${photo.id}/download`, {
+        method: 'GET',
+      });
+      
+      if (!response.ok) {
+        throw new Error('ダウンロードに失敗しました');
+      }
+
+      // レスポンスをBlobとして取得
+      const blob = await response.blob();
+      
+      // ダウンロードリンクを作成
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `store_visit_photo_${photo.id}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // クリーンアップ
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('写真ダウンロードエラー:', error);
+      alert('写真のダウンロードに失敗しました');
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow-md p-4 mb-4">
+      <img
+        src={photo.thumbnail}
+        alt="Store visit"
+        className="w-full h-48 object-cover rounded-lg mb-4"
+      />
+      <div className="flex justify-between items-center mb-4">
+        <span className="text-gray-600 text-sm">
+          {new Date(photo.timestamp).toLocaleString()}
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={handleDownload}
+            className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"
+          >
+            ダウンロード
+          </button>
+          <button
+            onClick={() => onDelete(photo.id)}
+            className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+          >
+            削除
+          </button>
+        </div>
+      </div>
+      {photo.classifications.map((classification, index) => (
+        <div key={index} className="mb-2 last:mb-0">
+          <div className="flex justify-between items-center">
+            <span className="font-medium">{classification.category}</span>
+            <span className="text-sm text-gray-500">
+              信頼度: {Math.round(classification.confidence * 100)}%
+            </span>
+          </div>
+          <p className="text-gray-700 text-sm mt-1">{classification.text}</p>
+          {classification.reason && (
+            <p className="text-gray-500 text-xs mt-1">{classification.reason}</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // メインアプリコンポーネント
 function App() {
   const [storeName, setStoreName] = useState('');
