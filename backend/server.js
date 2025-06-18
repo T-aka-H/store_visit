@@ -1,4 +1,4 @@
-// server.js
+// server.js (完全版)
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -50,7 +50,7 @@ function bufferToBase64(buffer) {
   return buffer.toString('base64');
 }
 
-// 音声認識・分類API（デバッグ強化版）
+// 音声認識・分類API（iPhone対応版）
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     console.log('=== 音声認識リクエスト開始 ===');
@@ -76,10 +76,16 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
     const categories = JSON.parse(req.body.categories || '[]');
     const audioBuffer = req.file.buffer;
-    const mimeType = req.file.mimetype;
+    let mimeType = req.file.mimetype;
 
     console.log('カテゴリ数:', categories.length);
     console.log('音声ファイルサイズ:', audioBuffer.length);
+
+    // iPhone特有のMIME型を標準化
+    if (mimeType === 'audio/mp4' || mimeType === 'audio/m4a' || mimeType === 'audio/x-m4a') {
+      console.log('iPhone音声ファイルを検出、標準形式として処理');
+      mimeType = 'audio/mp4'; // 統一
+    }
 
     // 音声をBase64に変換
     const base64Audio = bufferToBase64(audioBuffer);
@@ -87,73 +93,117 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // 非常にシンプルなプロンプト
-    const prompt = `音声の内容を日本語で文字起こししてください。以下のJSON形式で答えてください：
+    // iPhone対応: 非常にシンプルで確実なプロンプト
+    const prompt = `この音声ファイルの内容を日本語で文字起こししてください。
+
+以下のJSON形式で回答してください:
 {
-  "transcript": "音声の内容",
+  "transcript": "音声の内容をここに書いてください",
   "categorized_items": []
-}`;
+}
+
+重要: 必ずJSONのみを返してください。説明文は不要です。`;
 
     console.log('Gemini APIリクエスト送信中...');
+    console.log('使用MIME型:', mimeType);
     
-    // タイムアウトを追加
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('API Timeout')), 30000); // 30秒タイムアウト
-    });
+    try {
+      const result = await model.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: base64Audio
+          }
+        }
+      ]);
 
-    const apiPromise = model.generateContent([
-      { text: prompt },
-      {
-        inlineData: {
-          mimeType: mimeType,
-          data: base64Audio
+      console.log('Gemini APIレスポンス受信');
+      const response = await result.response;
+      const content = response.text();
+
+      console.log('=== Gemini API生レスポンス ===');
+      console.log('レスポンス長:', content.length);
+      console.log('レスポンス内容:', content);
+      console.log('=== レスポンス終了 ===');
+
+      // 非常にシンプルなJSON抽出
+      let finalResult = {
+        transcript: '',
+        categorized_items: []
+      };
+
+      // JSONブロックを抽出
+      const cleanContent = content.replace(/```json|```/g, '').trim();
+      
+      try {
+        // まず全体をJSONとして解析
+        finalResult = JSON.parse(cleanContent);
+        console.log('JSON解析成功');
+      } catch (parseError) {
+        console.log('JSON解析失敗、代替処理:', parseError.message);
+        
+        // 波括弧を探してJSON部分を抽出
+        const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            finalResult = JSON.parse(jsonMatch[0]);
+            console.log('部分JSON解析成功');
+          } catch (e) {
+            console.log('部分JSON解析も失敗、フォールバック');
+            finalResult = {
+              transcript: cleanContent,
+              categorized_items: []
+            };
+          }
+        } else {
+          // JSONが見つからない場合、テキストとして処理
+          finalResult = {
+            transcript: cleanContent,
+            categorized_items: []
+          };
         }
       }
-    ]);
 
-    const result = await Promise.race([apiPromise, timeoutPromise]);
-    console.log('Gemini APIレスポンス受信');
+      // transcriptが空の場合のフォールバック
+      if (!finalResult.transcript || finalResult.transcript.trim() === '') {
+        finalResult.transcript = content;
+      }
 
-    const response = await result.response;
-    const content = response.text();
+      // categorized_itemsが配列でない場合の修正
+      if (!Array.isArray(finalResult.categorized_items)) {
+        finalResult.categorized_items = [];
+      }
 
-    console.log('=== Gemini API生レスポンス ===');
-    console.log('レスポンス長:', content.length);
-    console.log('レスポンス内容（最初の500文字）:', content.substring(0, 500));
-    console.log('レスポンス内容（最後の500文字）:', content.substring(Math.max(0, content.length - 500)));
-    console.log('=== レスポンス終了 ===');
+      console.log('最終レスポンス:', finalResult);
+      res.json(finalResult);
 
-    // 非常にシンプルなフォールバック
-    let finalResult = {
-      transcript: content.replace(/```json|```/g, '').trim(),
-      categorized_items: []
-    };
-
-    // JSONの抽出を試みる
-    try {
-      // まず全体をJSONとして解析
-      finalResult = JSON.parse(content);
-      console.log('JSON解析成功（全体）');
-    } catch (e1) {
-      console.log('全体JSON解析失敗:', e1.message);
+    } catch (geminiError) {
+      console.error('Gemini API エラー:', geminiError);
       
-      // 波括弧で囲まれた部分を抽出
-      const jsonMatch = content.match(/\{[^{}]*"transcript"[^{}]*\}/);
-      if (jsonMatch) {
-        try {
-          finalResult = JSON.parse(jsonMatch[0]);
-          console.log('JSON解析成功（部分抽出）');
-        } catch (e2) {
-          console.log('部分JSON解析失敗:', e2.message);
-        }
+      // Gemini API固有のエラーハンドリング
+      if (geminiError.message.includes('SAFETY')) {
+        res.json({
+          transcript: '音声の内容が安全フィルターにより処理できませんでした',
+          categorized_items: []
+        });
+      } else if (geminiError.message.includes('QUOTA_EXCEEDED')) {
+        res.status(429).json({
+          error: 'API利用制限に達しました',
+          transcript: 'API利用制限のため処理できませんでした',
+          categorized_items: []
+        });
+      } else {
+        res.status(500).json({
+          error: 'Gemini API エラー',
+          transcript: `API処理エラー: ${geminiError.message}`,
+          categorized_items: []
+        });
       }
     }
 
-    console.log('最終レスポンス:', finalResult);
-    res.json(finalResult);
-
   } catch (error) {
-    console.error('=== エラー詳細 ===');
+    console.error('=== 全体エラー ===');
     console.error('エラー名:', error.name);
     console.error('エラーメッセージ:', error.message);
     console.error('エラースタック:', error.stack);
@@ -162,88 +212,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     res.status(500).json({ 
       error: '音声認識処理中にエラーが発生しました',
       details: `${error.name}: ${error.message}`,
-      transcript: `エラーが発生しました: ${error.message}`,
-      categorized_items: []
-    });
-  }
-});テキスト",
-      "confidence": 0.8
-    }
-  ]
-}
-
-音声が不明瞭な場合は、transcriptに「音声が不明瞭でした」と記載し、categorized_itemsは空配列にしてください。
-`;
-
-    console.log('Gemini APIにリクエスト送信');
-    const result = await model.generateContent([
-      { text: prompt },
-      {
-        inlineData: {
-          mimeType: mimeType,
-          data: base64Audio
-        }
-      }
-    ]);
-
-    const response = await result.response;
-    const content = response.text();
-
-    console.log('Gemini API生レスポンス:', content);
-
-    // より堅牢なJSON抽出
-    let parsedResult;
-    try {
-      // まず全体をJSONとして解析を試みる
-      parsedResult = JSON.parse(content);
-    } catch (firstParseError) {
-      console.log('全体のJSON解析失敗、部分抽出を試行');
-      
-      // JSONブロックを抽出して解析
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          parsedResult = JSON.parse(jsonMatch[0]);
-        } catch (secondParseError) {
-          console.error('JSON抽出・解析失敗:', secondParseError);
-          
-          // フォールバック: プレーンテキストとして処理
-          parsedResult = {
-            transcript: content.replace(/```json|```/g, '').trim(),
-            categorized_items: []
-          };
-        }
-      } else {
-        console.log('JSONブロック未発見、フォールバック処理');
-        parsedResult = {
-          transcript: content,
-          categorized_items: []
-        };
-      }
-    }
-
-    // レスポンス形式の検証と正規化
-    const normalizedResponse = {
-      transcript: parsedResult.transcript || content || '音声認識に失敗しました',
-      categorized_items: Array.isArray(parsedResult.categorized_items) 
-        ? parsedResult.categorized_items 
-        : []
-    };
-
-    console.log('正規化されたレスポンス:', normalizedResponse);
-    res.json(normalizedResponse);
-
-  } catch (error) {
-    console.error('音声認識エラー詳細:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    });
-    
-    res.status(500).json({ 
-      error: '音声認識処理中にエラーが発生しました',
-      details: error.message,
-      transcript: '処理中にエラーが発生しました',
+      transcript: `処理エラー: ${error.message}`,
       categorized_items: []
     });
   }
