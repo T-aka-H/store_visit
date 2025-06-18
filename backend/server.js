@@ -95,8 +95,28 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     // シンプルなプロンプト
     const prompt = `この音声ファイルの内容を日本語で文字起こししてください。
 
-音声が聞き取れない場合は「音声が不明瞭でした」と回答してください。
-マークダウンやJSON形式は使わず、普通の文章で回答してください。`;
+以下のカテゴリに関連する内容があれば、該当するカテゴリ名と内容を教えてください：
+
+カテゴリ：
+- 価格情報（商品の価格、特売情報、値段に関する内容）
+- 売り場情報（売り場レイアウト、陳列、棚に関する内容）
+- 客層・混雑度（お客様、混雑状況、客層に関する内容）
+- 商品・品揃え（商品の種類、品揃え、欠品に関する内容）
+- 店舗環境（清潔さ、照明、音楽、空調に関する内容）
+
+以下のJSON形式で回答してください：
+{
+  "transcript": "音声の文字起こし内容",
+  "categorized_items": [
+    {
+      "category": "該当カテゴリ名",
+      "text": "カテゴリに関連する具体的な内容",
+      "confidence": 0.8
+    }
+  ]
+}
+
+音声が聞き取れない場合は transcript のみ返してください。`;
 
     console.log('Gemini APIリクエスト送信中...');
     console.log('使用MIME型:', mimeType);
@@ -121,13 +141,102 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       console.log('レスポンス内容:', content);
       console.log('=== レスポンス終了 ===');
 
-      // プレーンテキストとして処理
-      const finalResult = {
-        transcript: content.trim() || '音声認識に失敗しました',
+      // JSONを試行、失敗時はプレーンテキストとして処理
+      let finalResult = {
+        transcript: '',
         categorized_items: []
       };
 
-      console.log('最終レスポンス:', finalResult);
+      try {
+        console.log('=== JSON解析試行開始 ===');
+        
+        // JSONコードブロックを除去
+        let cleanContent = content.replace(/```json|```/g, '').trim();
+        console.log('クリーンアップ後:', cleanContent.substring(0, 200) + '...');
+        
+        // JSON全体を解析
+        const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          console.log('JSON形式検出:', jsonMatch[0].substring(0, 100) + '...');
+          const parsedJson = JSON.parse(jsonMatch[0]);
+          console.log('JSON解析成功:', parsedJson);
+          
+          finalResult = {
+            transcript: parsedJson.transcript || content.trim(),
+            categorized_items: Array.isArray(parsedJson.categorized_items) ? parsedJson.categorized_items : []
+          };
+          
+          console.log('最終結果（JSON）:', finalResult);
+        } else {
+          throw new Error('JSON形式が見つかりません');
+        }
+      } catch (parseError) {
+        console.log('=== JSON解析失敗、キーワードマッチング開始 ===');
+        console.log('解析エラー:', parseError.message);
+        
+        // プレーンテキストとして処理し、キーワードマッチング
+        finalResult = {
+          transcript: content.trim(),
+          categorized_items: []
+        };
+
+        // より詳細なキーワードマッチング
+        const keywords = {
+          '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
+          '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
+          '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
+          '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
+          '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
+        };
+
+        console.log('キーワードマッチング対象テキスト:', content);
+
+        Object.entries(keywords).forEach(([category, keywordList]) => {
+          const matchedKeywords = keywordList.filter(keyword => content.includes(keyword));
+          
+          if (matchedKeywords.length > 0) {
+            console.log(`カテゴリ「${category}」でマッチ:`, matchedKeywords);
+            
+            finalResult.categorized_items.push({
+              category: category,
+              text: content.trim(),
+              confidence: 0.6 + (matchedKeywords.length * 0.1) // マッチした数に応じて信頼度調整
+            });
+          }
+        });
+
+        console.log('キーワードマッチング結果:', finalResult.categorized_items);
+
+        // 重複除去
+        const uniqueItems = [];
+        const seen = new Set();
+        finalResult.categorized_items.forEach(item => {
+          const key = `${item.category}-${item.text.substring(0, 50)}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            uniqueItems.push(item);
+          }
+        });
+        finalResult.categorized_items = uniqueItems;
+        
+        console.log('重複除去後:', finalResult.categorized_items);
+      }
+
+      // transcriptが空の場合のフォールバック
+      if (!finalResult.transcript || finalResult.transcript.trim() === '') {
+        finalResult.transcript = content.trim() || '音声認識に失敗しました';
+      }
+
+      // categorized_itemsが配列でない場合の修正
+      if (!Array.isArray(finalResult.categorized_items)) {
+        finalResult.categorized_items = [];
+      }
+
+      console.log('=== 最終レスポンス送信 ===');
+      console.log('transcript:', finalResult.transcript);
+      console.log('categorized_items数:', finalResult.categorized_items.length);
+      console.log('categorized_items:', finalResult.categorized_items);
+      
       res.json(finalResult);
 
     } catch (geminiError) {
@@ -174,58 +283,62 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 app.post('/api/generate-insights', async (req, res) => {
   try {
     console.log('インサイト生成リクエスト受信');
+    console.log('リクエストボディ:', JSON.stringify(req.body, null, 2));
     
     const { storeName, categories, transcript } = req.body;
 
-    if (!categories || categories.length === 0) {
+    if ((!categories || categories.length === 0) && (!transcript || transcript.trim() === '')) {
+      console.log('分析対象データなし');
       return res.status(400).json({ error: '分析対象のデータがありません' });
+    }
+
+    // APIキー確認
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY が設定されていません');
+      return res.status(500).json({ 
+        error: 'API設定エラー',
+        insights: 'API設定に問題があります。管理者にお問い合わせください。'
+      });
     }
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const prompt = `
-あなたは小売業界の専門コンサルタントです。以下の店舗視察データを分析し、実用的なビジネスインサイトを生成してください。
+    // より安全で確実なプロンプト
+    const categoriesText = categories && categories.length > 0 
+      ? categories.map(cat => `### ${cat.name}\n${cat.items.join('\n')}`).join('\n\n')
+      : '（カテゴリデータなし）';
 
-店舗名: ${storeName}
+    const transcriptText = transcript && transcript.trim() 
+      ? transcript 
+      : '（音声ログなし）';
+
+    const prompt = `あなたは小売業界の専門コンサルタントです。以下の店舗視察データを分析し、ビジネスインサイトを生成してください。
+
+店舗名: ${storeName || '未設定'}
 
 視察データ:
-${categories.map(cat => `
-### ${cat.name}
-${cat.items.join('\n')}
-`).join('\n')}
+${categoriesText}
 
 音声ログ:
-${transcript}
+${transcriptText}
 
-以下の観点から分析してください:
+以下の観点から簡潔に分析してください:
 
-1. **競合優位性分析**
-   - この店舗の強み・弱み
-   - 競合との差別化ポイント
+1. 店舗の強みと弱み
+2. 改善提案（優先度付き）
+3. 顧客体験の評価
+4. 収益性向上のアイデア
+5. 注意すべきリスク要因
 
-2. **改善提案**
-   - 具体的な改善アクション
-   - 優先度付きの提案
+各項目について具体的で実行可能な内容で回答してください。データが不足している場合は、一般的な小売業の観点から推奨事項を提示してください。`;
 
-3. **顧客体験分析**
-   - 客層・動線・満足度の観点
-   - CX向上のポイント
-
-4. **収益性向上策**
-   - 売上向上のための施策
-   - コスト最適化の提案
-
-5. **リスク要因**
-   - 懸念事項や注意すべき点
-
-各項目について、具体的で実行可能な内容で回答してください。データに基づいた根拠も示してください。
-`;
+    console.log('Gemini APIリクエスト送信中...');
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const insights = response.text();
 
-    console.log('インサイト生成完了');
+    console.log('インサイト生成完了, 長さ:', insights.length);
     res.json({ insights });
 
   } catch (error) {
@@ -235,10 +348,21 @@ ${transcript}
       stack: error.stack
     });
     
+    // より詳細なエラーハンドリング
+    let userMessage = 'インサイト生成中にエラーが発生しました。';
+    
+    if (error.message.includes('SAFETY')) {
+      userMessage = '安全フィルターによりインサイトを生成できませんでした。';
+    } else if (error.message.includes('QUOTA_EXCEEDED')) {
+      userMessage = 'API利用制限に達しました。しばらく時間をおいて再試行してください。';
+    } else if (error.message.includes('INVALID_ARGUMENT')) {
+      userMessage = 'データ形式に問題があります。録音内容を確認してください。';
+    }
+    
     res.status(500).json({ 
-      error: 'インサイト生成中にエラーが発生しました',
+      error: userMessage,
       details: error.message,
-      insights: 'エラーが発生したため、インサイトを生成できませんでした。'
+      insights: `エラーが発生したため、インサイトを生成できませんでした。\n\nエラー詳細: ${error.message}\n\n別の方法でデータを入力し直すか、しばらく時間をおいて再試行してください。`
     });
   }
 });

@@ -145,30 +145,102 @@ function App() {
 
       const result = await response.json();
       
+      console.log('=== バックエンドレスポンス受信 ===');
+      console.log('transcript:', result.transcript);
+      console.log('categorized_items:', result.categorized_items);
+      console.log('categorized_items数:', result.categorized_items?.length || 0);
+      
       if (result.transcript) {
         setTranscript(prev => prev + result.transcript + '\n\n');
+        console.log('音声ログ更新完了');
       }
       
-      if (result.categorized_items) {
+      if (result.categorized_items && Array.isArray(result.categorized_items) && result.categorized_items.length > 0) {
+        console.log('カテゴリ分類データあり、処理開始');
+        
         setCategories(prevCategories => {
           const updatedCategories = [...prevCategories];
           
-          result.categorized_items.forEach(item => {
+          result.categorized_items.forEach((item, index) => {
+            console.log(`アイテム ${index + 1}:`, item);
+            
             const categoryIndex = updatedCategories.findIndex(
               cat => cat.name === item.category
             );
             
             if (categoryIndex !== -1) {
-              updatedCategories[categoryIndex].items.push({
+              const newItem = {
                 text: item.text,
                 confidence: item.confidence || 1.0,
                 timestamp: new Date().toLocaleTimeString()
+              };
+              
+              updatedCategories[categoryIndex].items.push(newItem);
+              console.log(`カテゴリ「${item.category}」にアイテム追加:`, newItem);
+            } else {
+              console.log(`カテゴリ「${item.category}」が見つかりません`);
+            }
+          });
+          
+          console.log('更新後のカテゴリ:', updatedCategories.map(cat => ({
+            name: cat.name, 
+            itemCount: cat.items.length
+          })));
+          
+          return updatedCategories;
+        });
+      } else {
+        console.log('カテゴリ分類データなし');
+        
+        // フォールバック: フロントエンドでキーワードマッチング
+        if (result.transcript) {
+          console.log('フロントエンドでキーワードマッチング実行');
+          
+          const frontendKeywords = {
+            '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引'],
+            '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示'],
+            '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族'],
+            '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目'],
+            '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調']
+          };
+          
+          const matchedCategories = [];
+          Object.entries(frontendKeywords).forEach(([categoryName, keywords]) => {
+            const matches = keywords.filter(keyword => result.transcript.includes(keyword));
+            if (matches.length > 0) {
+              matchedCategories.push({
+                category: categoryName,
+                text: result.transcript,
+                confidence: 0.5,
+                matchedKeywords: matches
               });
             }
           });
           
-          return updatedCategories;
-        });
+          if (matchedCategories.length > 0) {
+            console.log('フロントエンドマッチング結果:', matchedCategories);
+            
+            setCategories(prevCategories => {
+              const updatedCategories = [...prevCategories];
+              
+              matchedCategories.forEach(item => {
+                const categoryIndex = updatedCategories.findIndex(
+                  cat => cat.name === item.category
+                );
+                
+                if (categoryIndex !== -1) {
+                  updatedCategories[categoryIndex].items.push({
+                    text: `${item.text} [キーワード: ${item.matchedKeywords.join(', ')}]`,
+                    confidence: item.confidence,
+                    timestamp: new Date().toLocaleTimeString()
+                  });
+                }
+              });
+              
+              return updatedCategories;
+            });
+          }
+        }
       }
       
     } catch (error) {
