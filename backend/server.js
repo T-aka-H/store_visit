@@ -858,7 +858,7 @@ app.get('/api/photos/:id/download', (req, res) => {
     const metadata = {
       id: photo.id,
       timestamp: photo.timestamp,
-      analysis: photo.analysis,
+      classifications: photo.classifications,
       metadata: photo.processedImage.metadata
     };
     const metadataBuffer = Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8');
@@ -877,7 +877,9 @@ app.get('/api/photos/:id/download', (req, res) => {
     archive.append(metadataBuffer, { name: `metadata_${id}.json` });
 
     // CSVサマリーの追加
-    const csvContent = `ID,撮影日時,カテゴリ,説明,信頼度\n${id},${photo.timestamp},"${photo.analysis.category}","${photo.analysis.description}",${photo.analysis.confidence}`;
+    const storeInfo = photo.classifications.find(c => c.category === '店舗情報');
+    const storeName = storeInfo ? storeInfo.text : '不明';
+    const csvContent = `ID,撮影日時,店舗名,分類情報\n${id},${photo.timestamp},"${storeName}","${photo.classifications.map(c => `${c.category}: ${c.text} (信頼度: ${c.confidence})`).join('; ')}"`;
     archive.append(Buffer.from(csvContent, 'utf-8'), { name: 'summary.csv' });
 
     archive.finalize();
@@ -918,7 +920,7 @@ app.post('/api/photos/download-multiple', (req, res) => {
     archive.pipe(res);
 
     // CSVサマリーの準備
-    let csvContent = 'ID,撮影日時,カテゴリ,説明,信頼度\n';
+    let csvContent = 'ID,撮影日時,店舗名,分類情報\n';
 
     // 各写真の処理
     targetPhotos.forEach(photo => {
@@ -931,7 +933,7 @@ app.post('/api/photos/download-multiple', (req, res) => {
       const metadata = {
         id: photo.id,
         timestamp: photo.timestamp,
-        analysis: photo.analysis,
+        classifications: photo.classifications,
         metadata: photo.processedImage.metadata
       };
       archive.append(
@@ -940,7 +942,9 @@ app.post('/api/photos/download-multiple', (req, res) => {
       );
 
       // CSVサマリーの行を追加
-      csvContent += `${photo.id},${photo.timestamp},"${photo.analysis.category}","${photo.analysis.description}",${photo.analysis.confidence}\n`;
+      const storeInfo = photo.classifications.find(c => c.category === '店舗情報');
+      const storeName = storeInfo ? storeInfo.text : '不明';
+      csvContent += `${photo.id},${photo.timestamp},"${storeName}","${photo.classifications.map(c => `${c.category}: ${c.text} (信頼度: ${c.confidence})`).join('; ')}"\n`;
     });
 
     // CSVサマリーの追加
