@@ -63,24 +63,120 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       // カテゴリ自動分類（キーワードマッチング）
       const categorizedItems = [];
       const keywords = {
-        '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
-        '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
-        '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
-        '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
-        '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
+        '価格情報': [
+          '円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト',
+          '値上げ', '値下げ', 'プライス', '料金', '定価', '原価', '利益', '粗利', '利幅',
+          'お買い得', 'バーゲン', '特価', '安価', '高価', '相場'
+        ],
+        '売り場情報': [
+          '売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ',
+          'コーナー', 'スペース', '売場', '平台', '山積み', 'フェイス', '什器', 'ショーケース',
+          'ディスプレイ', '売り場面積', '通路幅', '棚割り', '商品配置', 'POPスペース'
+        ],
+        '客層・混雑度': [
+          '客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人',
+          '来店', '客数', '男性', '女性', '学生', '主婦', '会社員', '観光客', '地元',
+          '客足', '入店', '退店', '滞在時間', '待ち時間', '行列'
+        ],
+        '商品・品揃え': [
+          '商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材',
+          'ブランド', '新商品', '定番', '季節商品', '限定', '品切れ', '品質', '鮮度',
+          'パッケージ', '売れ筋', '死に筋', '回転率', '仕入れ', '発注', '入荷'
+        ],
+        '店舗環境': [
+          '店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度',
+          '雰囲気', '清掃', '匂い', '臭い', '騒音', '快適', '不快', 'トイレ', '休憩所',
+          'アクセス', '案内表示', 'サイン', '外観', '内装', '床', '天井', '壁'
+        ]
       };
 
-      Object.entries(keywords).forEach(([category, keywordList]) => {
-        const matchedKeywords = keywordList.filter(keyword => browserTranscript.includes(keyword));
+      // 文脈を考慮した分類関数
+      function classifyWithContext(text, category, matchedKeywords) {
+        // 基本スコアの計算（キーワードマッチ数に基づく）
+        let score = Math.min(0.9, 0.5 + (matchedKeywords.length * 0.1));
         
-        if (matchedKeywords.length > 0) {
-          console.log(`カテゴリ「${category}」でマッチ:`, matchedKeywords);
+        // 文脈による補正
+        const contextPatterns = {
+          '価格情報': [
+            /(\d+)円/, // 具体的な価格の言及
+            /[値価]段[がは]/, // 価格に関する評価
+            /([特安高])い/, // 価格の形容
+          ],
+          '売り場情報': [
+            /棚[にでが]/, // 棚に関する具体的な言及
+            /通路[がはで]/, // 通路に関する具体的な言及
+            /配置[がはで]/, // 配置に関する具体的な言及
+          ],
+          '客層・混雑度': [
+            /人[がが]?多い/, // 混雑状況
+            /客[がは]?([多少]な?い|来)/, // 客の様子
+            /([混空])いて/, // 混雑度の直接的な言及
+          ],
+          '商品・品揃え': [
+            /商品[がはを]/, // 商品に関する具体的な言及
+            /在庫[がはで]/, // 在庫状況
+            /品([切揃])れ/, // 品揃えの状況
+          ],
+          '店舗環境': [
+            /店[内舗][がはで]/, // 店舗環境への言及
+            /雰囲気[がはで]/, // 雰囲気への言及
+            /清潔[さで]/, // 清潔さへの言及
+          ]
+        };
+
+        // 文脈パターンのマッチをチェック
+        if (contextPatterns[category]) {
+          const contextMatches = contextPatterns[category].filter(pattern => 
+            pattern.test(text)
+          );
+          // 文脈マッチによるスコア補正
+          score += contextMatches.length * 0.1;
+        }
+
+        // 最終スコアの範囲を0.1-1.0に制限
+        return Math.min(1.0, Math.max(0.1, score));
+      }
+
+      // 文章を文単位で分割する関数
+      function splitIntoSentences(text) {
+        // 句点や感嘆符などで文を分割
+        const sentences = text
+          .split(/[。．.！!？?]/g)
+          .map(s => s.trim())
+          .filter(s => s.length > 0);  // 空の文を除外
+        
+        return sentences;
+      }
+
+      // 文章を分割して処理
+      const sentences = splitIntoSentences(browserTranscript);
+      console.log('分割された文章:', sentences);
+
+      // 各文に対して分類を実行
+      sentences.forEach(sentence => {
+        const sentenceCategories = [];
+
+        Object.entries(keywords).forEach(([category, keywordList]) => {
+          const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
           
-          categorizedItems.push({
-            category: category,
-            text: browserTranscript,
-            confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1))
-          });
+          if (matchedKeywords.length > 0) {
+            const confidence = classifyWithContext(sentence, category, matchedKeywords);
+            
+            sentenceCategories.push({
+              category: category,
+              text: sentence,
+              confidence: confidence,
+              reason: `キーワード「${matchedKeywords.join('、')}」を検出し、文脈を考慮して分類しました`
+            });
+          }
+        });
+
+        // 最も確信度の高い分類のみを採用
+        if (sentenceCategories.length > 0) {
+          const bestMatch = sentenceCategories.reduce((prev, current) => 
+            (current.confidence > prev.confidence) ? current : prev
+          );
+          categorizedItems.push(bestMatch);
         }
       });
 
@@ -194,11 +290,35 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         }
 
         // カテゴリごとの分類結果を整形
-        const categorizedItems = parsedResponse.categories.map(item => ({
-          category: item.category,
-          text: item.text,
-          confidence: item.confidence || 0.7
-        }));
+        const sentences = splitIntoSentences(content);
+        const categorizedItems = [];
+
+        sentences.forEach(sentence => {
+          const sentenceCategories = [];
+
+          Object.entries(keywords).forEach(([category, keywordList]) => {
+            const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
+            
+            if (matchedKeywords.length > 0) {
+              const confidence = classifyWithContext(sentence, category, matchedKeywords);
+              
+              sentenceCategories.push({
+                category: category,
+                text: sentence,
+                confidence: confidence,
+                reason: `キーワード「${matchedKeywords.join('、')}」を検出し、文脈を考慮して分類しました`
+              });
+            }
+          });
+
+          // 最も確信度の高い分類のみを採用
+          if (sentenceCategories.length > 0) {
+            const bestMatch = sentenceCategories.reduce((prev, current) => 
+              (current.confidence > prev.confidence) ? current : prev
+            );
+            categorizedItems.push(bestMatch);
+          }
+        });
 
         console.log('分類結果:', categorizedItems);
 
@@ -212,25 +332,23 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         console.error('Geminiレスポースのパースエラー:', parseError);
         
         // パースに失敗した場合は、テキスト全体を transcript として扱う
+        const sentences = splitIntoSentences(content);
         const categorizedItems = [];
-        const keywords = {
-          '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
-          '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
-          '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
-          '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
-          '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
-        };
 
-        // キーワードベースのフォールバック分類
-        Object.entries(keywords).forEach(([category, keywordList]) => {
-          const matchedKeywords = keywordList.filter(keyword => content.includes(keyword));
-          if (matchedKeywords.length > 0) {
-            categorizedItems.push({
-              category: category,
-              text: content,
-              confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1))
-            });
-          }
+        sentences.forEach(sentence => {
+          const sentenceCategories = [];
+
+          Object.entries(keywords).forEach(([category, keywordList]) => {
+            const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
+            if (matchedKeywords.length > 0) {
+              categorizedItems.push({
+                category: category,
+                text: sentence,
+                confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1)),
+                reason: `キーワード「${matchedKeywords.join('、')}」を検出`
+              });
+            }
+          });
         });
 
         res.json({
@@ -375,11 +493,31 @@ ${categoriesText}
       console.log('フォールバック分類を実行');
       
       const keywords = {
-        '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
-        '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
-        '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
-        '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
-        '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
+        '価格情報': [
+          '円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト',
+          '値上げ', '値下げ', 'プライス', '料金', '定価', '原価', '利益', '粗利', '利幅',
+          'お買い得', 'バーゲン', '特価', '安価', '高価', '相場'
+        ],
+        '売り場情報': [
+          '売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ',
+          'コーナー', 'スペース', '売場', '平台', '山積み', 'フェイス', '什器', 'ショーケース',
+          'ディスプレイ', '売り場面積', '通路幅', '棚割り', '商品配置', 'POPスペース'
+        ],
+        '客層・混雑度': [
+          '客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人',
+          '来店', '客数', '男性', '女性', '学生', '主婦', '会社員', '観光客', '地元',
+          '客足', '入店', '退店', '滞在時間', '待ち時間', '行列'
+        ],
+        '商品・品揃え': [
+          '商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材',
+          'ブランド', '新商品', '定番', '季節商品', '限定', '品切れ', '品質', '鮮度',
+          'パッケージ', '売れ筋', '死に筋', '回転率', '仕入れ', '発注', '入荷'
+        ],
+        '店舗環境': [
+          '店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度',
+          '雰囲気', '清掃', '匂い', '臭い', '騒音', '快適', '不快', 'トイレ', '休憩所',
+          'アクセス', '案内表示', 'サイン', '外観', '内装', '床', '天井', '壁'
+        ]
       };
 
       sentences.forEach(sentence => {
