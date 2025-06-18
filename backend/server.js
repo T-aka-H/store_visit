@@ -345,7 +345,7 @@ async function processPhotoAndCreateThumbnail(imageBuffer) {
   }
 }
 
-// 音声認識・分類API（ブラウザベース + Geminiバックアップ）
+// 音声認識API（分類なし）
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     console.log('=== 音声認識開始 ===');
@@ -356,23 +356,8 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     if (browserTranscript && browserTranscript.trim()) {
       console.log('ブラウザ音声認識結果:', browserTranscript);
       
-      // 改善されたキーワードベース分類を使用
-      const categorizedItems = performKeywordBasedClassification(browserTranscript);
-
-      // 店舗名の抽出
-      const storeNameMatch = browserTranscript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
-      const storeName = storeNameMatch ? storeNameMatch[1] : '';
-
-      // CSV形式のデータを生成（写真情報を含める）
-      const csvData = convertToCSVFormat(categorizedItems, storeName, []);
-
       return res.json({
         transcript: browserTranscript,
-        categorized_items: categorizedItems,
-        csv_format: {
-          headers: csvData.headers,
-          row: csvData.row
-        },
         source: 'browser'
       });
     }
@@ -393,60 +378,10 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const base64Audio = bufferToBase64(req.file.buffer);
 
-      const prompt = `あなたは小売店舗の視察データを分析する専門家です。
-以下の音声ファイルは店舗視察時の録音データです。以下の手順で分析してください：
-
-1. 音声の文字起こし
-- 日本語で正確に文字起こしを行ってください
-- 聞き取れない場合は「音声が不明瞭でした」と回答してください
-- 話者の口調や感情も可能な限り反映してください
-
-2. 内容の分類
-以下のカテゴリに関連する情報を抽出し、分類してください：
-
-価格情報:
-- 商品の価格、値段
-- セール、割引情報
-- 競合との価格比較
-- コスト関連の言及
-
-売り場情報:
-- 店舗レイアウト
-- 商品の陳列方法
-- 通路、棚の配置
-- 売り場の使い方
-
-客層・混雑度:
-- 来店客の特徴
-- 年齢層、性別
-- 混雑状況
-- 客数、客の動き
-
-商品・品揃え:
-- 取扱商品の種類
-- 品切れ、在庫状況
-- 商品の特徴
-- 品揃えの傾向
-
-店舗環境:
-- 店舗の雰囲気
-- 清潔さ、照明
-- 温度、空調
-- BGM、騒音レベル
-
-以下のJSON形式で回答してください：
-{
-  "transcript": "文字起こしの内容をここに記載",
-  "categories": [
-    {
-      "category": "カテゴリ名",
-      "text": "該当する発言内容",
-      "confidence": 0.8  // 0.1-1.0の範囲で確信度を設定
-    }
-  ]
-}
-
-音声が不明瞭な場合でも、聞き取れた部分から最大限の情報抽出を試みてください。`;
+      const prompt = `以下の音声ファイルは店舗視察時の録音データです。
+日本語で正確に文字起こしを行ってください。
+聞き取れない場合は「音声が不明瞭でした」と回答してください。
+話者の口調や感情も可能な限り反映してください。`;
 
       const result = await model.generateContent([
         { text: prompt },
@@ -459,84 +394,21 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       ]);
 
       const response = await result.response;
-      const content = response.text().trim();
+      const transcript = response.text().trim();
 
-      console.log('Geminiバックアップ成功:', content);
+      console.log('Geminiバックアップ成功');
 
-      try {
-        // JSONレスポースのパース
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        let parsedResponse = {
-          transcript: '音声認識に失敗しました',
-          categories: []
-        };
-
-        if (jsonMatch) {
-          const jsonContent = JSON.parse(jsonMatch[0]);
-          parsedResponse = {
-            transcript: jsonContent.transcript || '音声認識に失敗しました',
-            categories: jsonContent.categories || []
-          };
-        }
-
-        // 改善されたキーワードベース分類を追加実行
-        const additionalClassifications = performKeywordBasedClassification(parsedResponse.transcript);
-        const allClassifications = [...(parsedResponse.categories || []), ...additionalClassifications];
-
-        console.log('分類結果:', allClassifications);
-
-        // 店舗名の抽出
-        const storeNameMatch = parsedResponse.transcript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
-        const storeName = storeNameMatch ? storeNameMatch[1] : '';
-
-        // CSV形式のデータを生成（写真情報を含める）
-        const csvData = convertToCSVFormat(allClassifications, storeName, []);
-
-        res.json({
-          transcript: parsedResponse.transcript,
-          categorized_items: allClassifications,
-          csv_format: {
-            headers: csvData.headers,
-            row: csvData.row
-          },
-          source: 'gemini'
-        });
-
-      } catch (parseError) {
-        console.error('Geminiレスポースのパースエラー:', parseError);
-        
-        // パースに失敗した場合は、テキスト全体を transcript として扱う
-        const categorizedItems = performKeywordBasedClassification(content);
-
-        // 店舗名の抽出
-        const storeNameMatch = content.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
-        const storeName = storeNameMatch ? storeNameMatch[1] : '';
-
-        // CSV形式のデータを生成（写真情報を含める）
-        const csvData = convertToCSVFormat(categorizedItems, storeName, []);
-
-        res.json({
-          transcript: content,
-          categorized_items: categorizedItems,
-          csv_format: {
-            headers: csvData.headers,
-            row: csvData.row
-          },
-          source: 'gemini_fallback'
-        });
-      }
+      res.json({
+        transcript: transcript,
+        source: 'gemini'
+      });
 
     } catch (geminiError) {
       console.error('Geminiバックアップ失敗:', geminiError);
       
       res.status(500).json({
         error: '音声認識エラー',
-        transcript: `音声認識に失敗しました: ${geminiError.message}`,
-        categorized_items: [],
-        csv_format: {
-          headers: [],
-          row: {}
-        }
+        transcript: `音声認識に失敗しました: ${geminiError.message}`
       });
     }
 
@@ -549,12 +421,52 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     
     res.status(500).json({
       error: '処理エラー',
-      details: error.message,
-      categorized_items: [],
+      details: error.message
+    });
+  }
+});
+
+// テキスト分類API
+app.post('/api/classify', async (req, res) => {
+  try {
+    console.log('=== テキスト分類開始 ===');
+    const { text } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ 
+        error: 'テキストが必要です',
+        details: 'テキストが空です'
+      });
+    }
+
+    // キーワードベース分類を実行
+    const categorizedItems = performKeywordBasedClassification(text);
+
+    // 店舗名の抽出
+    const storeNameMatch = text.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+    const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+    // CSV形式のデータを生成
+    const csvData = convertToCSVFormat(categorizedItems, storeName, []);
+
+    res.json({
+      categorized_items: categorizedItems,
       csv_format: {
-        headers: [],
-        row: {}
+        headers: csvData.headers,
+        row: csvData.row
       }
+    });
+
+  } catch (error) {
+    console.error('=== 分類エラー ===');
+    console.error('エラー名:', error.name);
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
+    console.error('=== エラー終了 ===');
+    
+    res.status(500).json({
+      error: '分類処理エラー',
+      details: error.message
     });
   }
 });
