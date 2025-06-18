@@ -14,7 +14,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ミドルウェア
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));  // 写真アップロード用に制限を緩和
 app.use(express.static('public'));
 
 // ファイルアップロード設定
@@ -834,6 +834,107 @@ app.use((error, req, res, next) => {
     error: 'サーバー内部エラーが発生しました',
     details: error.message 
   });
+});
+
+// 写真解析API
+app.post('/api/analyze-photo', async (req, res) => {
+  try {
+    console.log('=== 写真解析開始 ===');
+    const { image, categories } = req.body;
+
+    if (!image) {
+      return res.status(400).json({ error: '写真データが必要です' });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY が設定されていません');
+      return res.status(500).json({ error: 'API設定エラー' });
+    }
+
+    const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+
+    const prompt = `あなたは小売店舗の視察写真を分析する専門家です。
+この写真から店舗視察に関連する重要な情報を抽出し、最も適切なカテゴリに分類してください。
+
+利用可能なカテゴリ:
+${categories ? categories.join('\n') : `
+- 価格情報（商品価格、セール情報など）
+- 売り場情報（レイアウト、陳列方法など）
+- 客層・混雑度（来店客の特徴、混雑状況など）
+- 商品・品揃え（商品の種類、在庫状況など）
+- 店舗環境（店舗の雰囲気、清潔さなど）`}
+
+以下の点に注目して分析してください：
+1. 写真に写っている主な要素（商品、設備、人物など）
+2. 店舗環境や雰囲気
+3. レイアウトや陳列方法
+4. 価格表示や販促物
+5. 混雑状況や客層の特徴
+
+以下のJSON形式で回答してください：
+{
+  "suggestedCategory": "最も適切なカテゴリ名",
+  "description": "写真の詳細な説明（日本語）",
+  "confidence": 0.8,  // 0.1-1.0の範囲で確信度を設定
+  "detectedElements": [
+    "検出された要素1",
+    "検出された要素2"
+  ]
+}`;
+
+    try {
+      const result = await model.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: image
+          }
+        }
+      ]);
+
+      const response = await result.response;
+      const content = response.text().trim();
+
+      console.log('Gemini Vision応答:', content);
+
+      try {
+        // JSONレスポースのパース
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const analysis = JSON.parse(jsonMatch[0]);
+          res.json(analysis);
+        } else {
+          throw new Error('JSON形式の応答が見つかりません');
+        }
+
+      } catch (parseError) {
+        console.error('Gemini Vision応答のパースエラー:', parseError);
+        
+        // パース失敗時のフォールバック
+        res.json({
+          suggestedCategory: '店舗環境',
+          description: content.substring(0, 200) + '...',
+          confidence: 0.5,
+          detectedElements: []
+        });
+      }
+
+    } catch (geminiError) {
+      console.error('Gemini Vision APIエラー:', geminiError);
+      res.status(500).json({
+        error: '写真解析エラー',
+        details: geminiError.message
+      });
+    }
+
+  } catch (error) {
+    console.error('写真解析エラー:', error);
+    res.status(500).json({
+      error: '処理エラー',
+      details: error.message
+    });
+  }
 });
 
 app.listen(PORT, () => {
