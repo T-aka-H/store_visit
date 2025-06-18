@@ -342,7 +342,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       error: '音声認識処理中にエラーが発生しました',
       details: `${error.name}: ${error.message}`,
       transcript: `処理エラー: ${error.message}`,
-      categorized_items:     });
+      categorized_items: [] });
   }
 });
 
@@ -692,10 +692,8 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Speech-to-Text configured: ${!!(process.env.GOOGLE_APPLICATION_CREDENTIALS && process.env.GOOGLE_CLOUD_PROJECT_ID)}`);
   console.log(`Gemini API Key configured: ${!!process.env.GEMINI_API_KEY}`);
-});: []
-    });
-  }
 });
+
 
 // AI インサイト生成API
 app.post('/api/generate-insights', async (req, res) => {
