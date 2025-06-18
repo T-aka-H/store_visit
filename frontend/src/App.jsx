@@ -62,10 +62,8 @@ const performAIClassification = async (text, categories, setCategories) => {
 };
 
 // 写真機能コンポーネント
-const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, storeName }) => {
-  const [photos, setPhotos] = useState([]);
+const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, storeName, isAnalyzing, onCapturePhoto, photos, setPhotos }) => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // 個別写真ダウンロード関数
   const downloadPhoto = async (photo) => {
@@ -209,186 +207,9 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
     }
   };
 
-  // iPhone向け写真撮影（ネイティブカメラ起動）
-  const capturePhoto = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.capture = 'environment';
-    input.multiple = true;
-    
-    input.onchange = (event) => {
-      const files = Array.from(event.target.files);
-      files.forEach(file => processPhoto(file));
-    };
-    
-    input.click();
-  };
-
-  // 写真処理（AI解析 + 自動分類）
-  const processPhoto = async (file) => {
-    try {
-      setIsAnalyzing(true);
-      
-      // Base64変換
-      const base64 = await fileToBase64(file);
-      
-      // 位置情報とメタデータ取得
-      const metadata = await extractPhotoMetadata(file);
-      
-      // AI解析でカテゴリ自動判定
-      const analysis = await analyzePhotoWithGemini(base64);
-      
-      const photoData = {
-        id: Date.now() + Math.random(),
-        file: file,
-        base64: base64,
-        timestamp: new Date().toLocaleString('ja-JP'),
-        metadata: metadata,
-        analysis: analysis,
-        category: analysis?.suggestedCategory || '店舗環境',
-        description: analysis?.description || '',
-        confidence: analysis?.confidence || 0,
-        size: file.size,
-        name: file.name || `photo_${Date.now()}.jpg`
-      };
-
-      setPhotos(prev => [...prev, photoData]);
-      
-      // カテゴリに自動追加
-      if (analysis?.suggestedCategory && analysis?.description) {
-        addPhotoToCategory(photoData);
-      }
-      
-      onPhotoAdded?.(photoData);
-      
-    } catch (error) {
-      console.error('写真処理エラー:', error);
-      alert('写真の処理中にエラーが発生しました');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  // Gemini Vision APIで写真解析
-  const analyzePhotoWithGemini = async (base64Image) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          image: base64Image.split(',')[1],
-          categories: categories.map(c => c.name)
-        })
-      });
-      
-      if (!response.ok) throw new Error('AI解析に失敗');
-      
-      return await response.json();
-    } catch (error) {
-      console.error('AI解析エラー:', error);
-      return {
-        suggestedCategory: '店舗環境',
-        description: '写真が追加されました',
-        confidence: 0.5,
-        detectedElements: []
-      };
-    }
-  };
-
-  // 写真をカテゴリに自動追加
-  const addPhotoToCategory = (photoData) => {
-    setCategories(prevCategories => {
-      const updatedCategories = [...prevCategories];
-      const categoryIndex = updatedCategories.findIndex(
-        cat => cat.name === photoData.category
-      );
-      
-      if (categoryIndex !== -1) {
-        updatedCategories[categoryIndex].items.push({
-          text: `📸 ${photoData.description}`,
-          confidence: photoData.confidence,
-          reason: 'AI写真解析による自動分類',
-          timestamp: photoData.timestamp,
-          photoId: photoData.id,
-          isPhoto: true
-        });
-      }
-      
-      return updatedCategories;
-    });
-  };
-
-  // Base64変換
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // 写真メタデータ抽出
-  const extractPhotoMetadata = async (file) => {
-    try {
-      const location = await getCurrentLocation();
-      
-      return {
-        size: `${(file.size / 1024 / 1024).toFixed(1)}MB`,
-        type: file.type,
-        lastModified: new Date(file.lastModified).toLocaleString('ja-JP'),
-        location: location
-      };
-    } catch (error) {
-      return { size: `${(file.size / 1024 / 1024).toFixed(1)}MB` };
-    }
-  };
-
-  // 位置情報取得
-  const getCurrentLocation = () => {
-    return new Promise((resolve) => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => resolve({
-            lat: position.coords.latitude.toFixed(6),
-            lng: position.coords.longitude.toFixed(6),
-            accuracy: Math.round(position.coords.accuracy)
-          }),
-          () => resolve(null),
-          { timeout: 5000, enableHighAccuracy: true }
-        );
-      } else {
-        resolve(null);
-      }
-    });
-  };
-
   // 写真削除
   const removePhoto = (photoId) => {
-    setPhotos(prev => prev.filter(photo => photo.id !== photoId));
-    
-    setCategories(prevCategories => {
-      return prevCategories.map(category => ({
-        ...category,
-        items: category.items.filter(item => item.photoId !== photoId)
-      }));
-    });
-  };
-
-  // ファイルサイズフォーマット
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '不明';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let size = bytes;
-    let unitIndex = 0;
-    
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex++;
-    }
-    
-    return `${Math.round(size * 10) / 10} ${units[unitIndex]}`;
+    setPhotos(prev => prev.filter(p => p.id !== photoId));
   };
 
   return (
@@ -417,7 +238,7 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
           )}
           {/* 写真撮影ボタン - iPhone向けサイズ */}
           <button
-            onClick={capturePhoto}
+            onClick={onCapturePhoto}
             disabled={isAnalyzing || isProcessing}
             className="flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm transition-all duration-200 font-medium active:bg-blue-600"
           >
@@ -1183,6 +1004,159 @@ function App() {
     }
   };
 
+  // iPhone向け写真撮影（ネイティブカメラ起動）
+  const capturePhoto = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+    input.multiple = true;
+    
+    input.onchange = (event) => {
+      const files = Array.from(event.target.files);
+      files.forEach(file => processPhoto(file));
+    };
+    
+    input.click();
+  };
+
+  // 写真処理（AI解析 + 自動分類）
+  const processPhoto = async (file) => {
+    try {
+      setIsAnalyzing(true);
+      
+      // Base64変換
+      const base64 = await fileToBase64(file);
+      
+      // 位置情報とメタデータ取得
+      const metadata = await extractPhotoMetadata(file);
+      
+      // AI解析でカテゴリ自動判定
+      const analysis = await analyzePhotoWithGemini(base64);
+      
+      const photoData = {
+        id: Date.now() + Math.random(),
+        file: file,
+        base64: base64,
+        timestamp: new Date().toLocaleString('ja-JP'),
+        metadata: metadata,
+        analysis: analysis,
+        category: analysis?.suggestedCategory || '店舗環境',
+        description: analysis?.description || '',
+        confidence: analysis?.confidence || 0,
+        size: file.size,
+        name: file.name || `photo_${Date.now()}.jpg`
+      };
+
+      setPhotos(prev => [...prev, photoData]);
+      
+      // カテゴリに自動追加
+      if (analysis?.suggestedCategory && analysis?.description) {
+        addPhotoToCategory(photoData);
+      }
+      
+    } catch (error) {
+      console.error('写真処理エラー:', error);
+      alert('写真の処理中にエラーが発生しました');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Gemini Vision APIで写真解析
+  const analyzePhotoWithGemini = async (base64Image) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          image: base64Image.split(',')[1],
+          categories: categories.map(c => c.name)
+        })
+      });
+      
+      if (!response.ok) throw new Error('AI解析に失敗');
+      
+      return await response.json();
+    } catch (error) {
+      console.error('AI解析エラー:', error);
+      return {
+        suggestedCategory: '店舗環境',
+        description: '写真が追加されました',
+        confidence: 0.5,
+        detectedElements: []
+      };
+    }
+  };
+
+  // 写真をカテゴリに自動追加
+  const addPhotoToCategory = (photoData) => {
+    setCategories(prevCategories => {
+      const updatedCategories = [...prevCategories];
+      const categoryIndex = updatedCategories.findIndex(
+        cat => cat.name === photoData.category
+      );
+      
+      if (categoryIndex !== -1) {
+        updatedCategories[categoryIndex].items.push({
+          text: `📸 ${photoData.description}`,
+          confidence: photoData.confidence,
+          reason: 'AI写真解析による自動分類',
+          timestamp: photoData.timestamp,
+          photoId: photoData.id,
+          isPhoto: true
+        });
+      }
+      
+      return updatedCategories;
+    });
+  };
+
+  // Base64変換
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // 写真メタデータ抽出
+  const extractPhotoMetadata = async (file) => {
+    try {
+      const location = await getCurrentLocation();
+      
+      return {
+        size: `${(file.size / 1024 / 1024).toFixed(1)}MB`,
+        type: file.type,
+        lastModified: new Date(file.lastModified).toLocaleString('ja-JP'),
+        location: location
+      };
+    } catch (error) {
+      return { size: `${(file.size / 1024 / 1024).toFixed(1)}MB` };
+    }
+  };
+
+  // 位置情報取得
+  const getCurrentLocation = () => {
+    return new Promise((resolve) => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => resolve({
+            lat: position.coords.latitude.toFixed(6),
+            lng: position.coords.longitude.toFixed(6),
+            accuracy: Math.round(position.coords.accuracy)
+          }),
+          () => resolve(null),
+          { timeout: 5000, enableHighAccuracy: true }
+        );
+      } else {
+        resolve(null);
+      }
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 pb-24">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -1230,6 +1204,10 @@ function App() {
           setCategories={setCategories}
           isProcessing={isProcessing}
           storeName={storeName}
+          isAnalyzing={isAnalyzing}
+          onCapturePhoto={capturePhoto}
+          photos={photos}
+          setPhotos={setPhotos}
         />
 
         {/* コントロールボタン */}
