@@ -1,4 +1,4 @@
-// server.js (Speech-to-Text対応版)
+// server.js (Speech-to-Text対応版 - 改善版)
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -49,6 +49,199 @@ function bufferToBase64(buffer) {
   return buffer.toString('base64');
 }
 
+// テキストから指定キーワード周辺のコンテキストを抽出
+function extractContext(text, keyword, contextLength = 20) {
+  const index = text.indexOf(keyword);
+  if (index === -1) return keyword;
+  
+  const start = Math.max(0, index - contextLength);
+  const end = Math.min(text.length, index + keyword.length + contextLength);
+  
+  return text.substring(start, end).trim();
+}
+
+// 文脈を考慮した分類確信度計算（改善版）
+function classifyWithContext(sentence, category, matchedKeywords) {
+  let confidence = 0.6; // ベース確信度
+
+  // キーワード数による重み付け
+  confidence += Math.min(0.3, matchedKeywords.length * 0.1);
+
+  // 価格情報の特別処理
+  if (category === '価格情報') {
+    const pricePattern = /\d+円/;
+    if (pricePattern.test(sentence)) {
+      confidence = Math.min(0.95, confidence + 0.2);
+    }
+  }
+
+  // 店舗環境の特別処理
+  if (category === '店舗環境') {
+    const environmentPatterns = [
+      /(?:大きな|小さな|広い|狭い).*?(?:店|お店)/,
+      /(?:案内|サービス|接客)/,
+      /(?:清潔|きれい|汚い)/
+    ];
+    
+    if (environmentPatterns.some(pattern => pattern.test(sentence))) {
+      confidence = Math.min(0.9, confidence + 0.15);
+    }
+  }
+
+  return Math.round(confidence * 100) / 100;
+}
+
+// キーワードベース分類の関数（改善版）
+function performKeywordBasedClassification(text) {
+  const classifications = [];
+  
+  // 価格情報の詳細抽出
+  const priceRegex = /([^\s、。]{1,10}?)(\d+)円/g;
+  let priceMatch;
+  while ((priceMatch = priceRegex.exec(text)) !== null) {
+    const productName = priceMatch[1] || '商品';
+    const price = priceMatch[2];
+    classifications.push({
+      category: '価格情報',
+      text: `${productName}${price}円`,
+      confidence: 0.9,
+      reason: '価格表記を検出'
+    });
+  }
+
+  // サービス関連の抽出
+  const serviceKeywords = ['案内係', 'サービス', 'スタッフ', '接客', 'カスタマーサービス', '店員'];
+  serviceKeywords.forEach(keyword => {
+    if (text.includes(keyword)) {
+      const context = extractContext(text, keyword, 20);
+      classifications.push({
+        category: '店舗環境',
+        text: context,
+        confidence: 0.8,
+        reason: `サービス関連キーワード「${keyword}」を検出`
+      });
+    }
+  });
+
+  // 店舗規模・環境の抽出
+  const sizeKeywords = ['大きな', '小さな', '広い', '狭い', '巨大な', '大型'];
+  sizeKeywords.forEach(keyword => {
+    if (text.includes(keyword)) {
+      const context = extractContext(text, keyword, 15);
+      classifications.push({
+        category: '店舗環境',
+        text: context,
+        confidence: 0.8,
+        reason: `店舗規模キーワード「${keyword}」を検出`
+      });
+    }
+  });
+
+  // 店舗名の抽出
+  const storeNameRegex = /([^\s、。]+(?:店|ストア|マート|スーパー))/g;
+  let storeMatch;
+  while ((storeMatch = storeNameRegex.exec(text)) !== null) {
+    classifications.push({
+      category: '店舗環境',
+      text: `店舗名: ${storeMatch[1]}`,
+      confidence: 0.9,
+      reason: '店舗名を検出'
+    });
+  }
+
+  // 客層・混雑度関連の抽出
+  const customerKeywords = ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い'];
+  customerKeywords.forEach(keyword => {
+    if (text.includes(keyword)) {
+      const context = extractContext(text, keyword, 20);
+      classifications.push({
+        category: '客層・混雑度',
+        text: context,
+        confidence: 0.8,
+        reason: `客層関連キーワード「${keyword}」を検出`
+      });
+    }
+  });
+
+  // 商品・品揃え関連の抽出
+  const productKeywords = ['商品', '品揃え', '欠品', '在庫', '種類', 'ブランド', '新商品', '品切れ'];
+  productKeywords.forEach(keyword => {
+    if (text.includes(keyword)) {
+      const context = extractContext(text, keyword, 20);
+      classifications.push({
+        category: '商品・品揃え',
+        text: context,
+        confidence: 0.8,
+        reason: `商品関連キーワード「${keyword}」を検出`
+      });
+    }
+  });
+
+  // 売り場情報関連の抽出
+  const layoutKeywords = ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド'];
+  layoutKeywords.forEach(keyword => {
+    if (text.includes(keyword)) {
+      const context = extractContext(text, keyword, 20);
+      classifications.push({
+        category: '売り場情報',
+        text: context,
+        confidence: 0.8,
+        reason: `売り場関連キーワード「${keyword}」を検出`
+      });
+    }
+  });
+
+  return classifications;
+}
+
+// 文章を文単位で分割する関数（改善版）
+function splitIntoSentences(text) {
+  // 1. 価格情報を一時的にマーク
+  let processedText = text.replace(/(\d+)円/g, '___PRICE___$1円___END___');
+  
+  // 2. 店舗名を一時的にマーク
+  processedText = processedText.replace(/([\u3040-\u309Fー\u30A0-\u30FF\u4E00-\u9FAF]{2,}(?:店|ストア|マート|スーパー))/g, '___STORE___$1___END___');
+  
+  // 3. 数値+単位を一時的にマーク
+  processedText = processedText.replace(/(\d+)([坪平米㎡])/g, '___UNIT___$1$2___END___');
+
+  // 4. 文を分割（句点、感嘆符、疑問符に加えて、「です」「ます」などの文末表現も考慮）
+  const segments = processedText.split(/(?:[。．.！!？?]|(?:です|ます)(?![かがのを]))/g);
+
+  // 5. 各セグメントを整形して意味のある文に分割
+  const sentences = segments
+    .flatMap(segment => {
+      // マーカーを元に戻す
+      segment = segment
+        .replace(/___PRICE___/g, '')
+        .replace(/___STORE___/g, '')
+        .replace(/___UNIT___/g, '')
+        .replace(/___END___/g, '')
+        .trim();
+
+      if (!segment) return [];
+
+      // 価格情報を含む部分を分離
+      const priceMatches = segment.match(/[^、\s]+\d+円/g) || [];
+      const nonPriceText = segment
+        .replace(/[^、\s]+\d+円[、\s]*/g, '')
+        .trim();
+
+      const results = [];
+      if (nonPriceText) {
+        results.push(nonPriceText);
+      }
+      if (priceMatches.length > 0) {
+        results.push(priceMatches.join('、'));
+      }
+
+      return results;
+    })
+    .filter(s => s.length > 0);
+
+  return sentences;
+}
+
 // 音声認識・分類API（ブラウザベース + Geminiバックアップ）
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
@@ -60,115 +253,8 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     if (browserTranscript && browserTranscript.trim()) {
       console.log('ブラウザ音声認識結果:', browserTranscript);
       
-      // カテゴリ自動分類（キーワードマッチング）
-      const categorizedItems = [];
-      const keywords = {
-        '価格情報': [
-          '円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト',
-          '値上げ', '値下げ', 'プライス', '料金', '定価', '原価', '利益', '粗利', '利幅',
-          'お買い得', 'バーゲン', '特価', '安価', '高価', '相場'
-        ],
-        '売り場情報': [
-          '売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ',
-          'コーナー', 'スペース', '売場', '平台', '山積み', 'フェイス', '什器', 'ショーケース',
-          'ディスプレイ', '売り場面積', '通路幅', '棚割り', '商品配置', 'POPスペース'
-        ],
-        '客層・混雑度': [
-          '客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人',
-          '来店', '客数', '男性', '女性', '学生', '主婦', '会社員', '観光客', '地元',
-          '客足', '入店', '退店', '滞在時間', '待ち時間', '行列'
-        ],
-        '商品・品揃え': [
-          '商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材',
-          'ブランド', '新商品', '定番', '季節商品', '限定', '品切れ', '品質', '鮮度',
-          'パッケージ', '売れ筋', '死に筋', '回転率', '仕入れ', '発注', '入荷'
-        ],
-        '店舗環境': [
-          '店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度',
-          '雰囲気', '清掃', '匂い', '臭い', '騒音', '快適', '不快', 'トイレ', '休憩所',
-          'アクセス', '案内表示', 'サイン', '外観', '内装', '床', '天井', '壁'
-        ]
-      };
-
-      // 文章を文単位で分割する関数
-      function splitIntoSentences(text) {
-        // 1. 価格情報を一時的にマーク
-        let processedText = text.replace(/(\d+)円/g, '___PRICE___$1円___END___');
-        
-        // 2. 店舗名を一時的にマーク
-        processedText = processedText.replace(/([\u3040-\u309Fー\u30A0-\u30FF\u4E00-\u9FAF]{2,}(?:店|ストア|マート|スーパー))/g, '___STORE___$1___END___');
-        
-        // 3. 数値+単位を一時的にマーク
-        processedText = processedText.replace(/(\d+)([坪平米㎡])/g, '___UNIT___$1$2___END___');
-
-        // 4. 文を分割（句点、感嘆符、疑問符に加えて、「です」「ます」などの文末表現も考慮）
-        const segments = processedText.split(/(?:[。．.！!？?]|(?:です|ます)(?![かがのを]))/g);
-
-        // 5. 各セグメントを整形して意味のある文に分割
-        const sentences = segments
-          .flatMap(segment => {
-            // マーカーを元に戻す
-            segment = segment
-              .replace(/___PRICE___/g, '')
-              .replace(/___STORE___/g, '')
-              .replace(/___UNIT___/g, '')
-              .replace(/___END___/g, '')
-              .trim();
-
-            if (!segment) return [];
-
-            // 価格情報を含む部分を分離
-            const priceMatches = segment.match(/[^、\s]+\d+円/g) || [];
-            const nonPriceText = segment
-              .replace(/[^、\s]+\d+円[、\s]*/g, '')
-              .trim();
-
-            const results = [];
-            if (nonPriceText) {
-              results.push(nonPriceText);
-            }
-            if (priceMatches.length > 0) {
-              results.push(priceMatches.join('、'));
-            }
-
-            return results;
-          })
-          .filter(s => s.length > 0);
-
-        return sentences;
-      }
-
-      // 文章を分割して処理
-      const sentences = splitIntoSentences(browserTranscript);
-      console.log('分割された文章:', sentences);
-
-      // 各文に対して分類を実行
-      sentences.forEach(sentence => {
-        const sentenceCategories = [];
-
-        Object.entries(keywords).forEach(([category, keywordList]) => {
-          const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
-          
-          if (matchedKeywords.length > 0) {
-            const confidence = classifyWithContext(sentence, category, matchedKeywords);
-            
-            sentenceCategories.push({
-              category: category,
-              text: sentence,
-              confidence: confidence,
-              reason: `キーワード「${matchedKeywords.join('、')}」を検出し、文脈を考慮して分類しました`
-            });
-          }
-        });
-
-        // 最も確信度の高い分類のみを採用
-        if (sentenceCategories.length > 0) {
-          const bestMatch = sentenceCategories.reduce((prev, current) => 
-            (current.confidence > prev.confidence) ? current : prev
-          );
-          categorizedItems.push(bestMatch);
-        }
-      });
+      // 改善されたキーワードベース分類を使用
+      const categorizedItems = performKeywordBasedClassification(browserTranscript);
 
       return res.json({
         transcript: browserTranscript,
@@ -279,42 +365,15 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
           };
         }
 
-        // カテゴリごとの分類結果を整形
-        const sentences = splitIntoSentences(content);
-        const categorizedItems = [];
+        // 改善されたキーワードベース分類を追加実行
+        const additionalClassifications = performKeywordBasedClassification(parsedResponse.transcript);
+        const allClassifications = [...(parsedResponse.categories || []), ...additionalClassifications];
 
-        sentences.forEach(sentence => {
-          const sentenceCategories = [];
-
-          Object.entries(keywords).forEach(([category, keywordList]) => {
-            const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
-            
-            if (matchedKeywords.length > 0) {
-              const confidence = classifyWithContext(sentence, category, matchedKeywords);
-              
-              sentenceCategories.push({
-                category: category,
-                text: sentence,
-                confidence: confidence,
-                reason: `キーワード「${matchedKeywords.join('、')}」を検出し、文脈を考慮して分類しました`
-              });
-            }
-          });
-
-          // 最も確信度の高い分類のみを採用
-          if (sentenceCategories.length > 0) {
-            const bestMatch = sentenceCategories.reduce((prev, current) => 
-              (current.confidence > prev.confidence) ? current : prev
-            );
-            categorizedItems.push(bestMatch);
-          }
-        });
-
-        console.log('分類結果:', categorizedItems);
+        console.log('分類結果:', allClassifications);
 
         res.json({
           transcript: parsedResponse.transcript,
-          categorized_items: categorizedItems,
+          categorized_items: allClassifications,
           source: 'gemini'
         });
 
@@ -322,24 +381,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         console.error('Geminiレスポースのパースエラー:', parseError);
         
         // パースに失敗した場合は、テキスト全体を transcript として扱う
-        const sentences = splitIntoSentences(content);
-        const categorizedItems = [];
-
-        sentences.forEach(sentence => {
-          const sentenceCategories = [];
-
-          Object.entries(keywords).forEach(([category, keywordList]) => {
-            const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
-            if (matchedKeywords.length > 0) {
-              categorizedItems.push({
-                category: category,
-                text: sentence,
-                confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1)),
-                reason: `キーワード「${matchedKeywords.join('、')}」を検出`
-              });
-            }
-          });
-        });
+        const categorizedItems = performKeywordBasedClassification(content);
 
         res.json({
           transcript: content,
@@ -374,7 +416,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-// AI文脈理解による分類API
+// AI文脈理解による分類API（完全改善版）
 app.post('/api/classify-context', async (req, res) => {
   try {
     console.log('=== AI文脈分類リクエスト受信 ===');
@@ -391,143 +433,127 @@ app.post('/api/classify-context', async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // テキストを文単位で分割（句点で区切る）
-    const sentences = text.split(/[。．.]\s*/).filter(s => s.trim());
-    console.log('分割された文章数:', sentences.length);
+    // 改善されたプロンプト
+    const categoriesText = categories.map(cat => cat.name).join(', ');
 
-    const categoriesText = categories.map(cat => 
-      `${cat.name}`
-    ).join('\n');
+    const prompt = `あなたは店舗視察データの分析エキスパートです。以下のテキストから複数の情報要素を抽出し、それぞれを適切なカテゴリに分類してください。
 
-    const classifications = [];
+テキスト: "${text.trim()}"
 
-    // 各文章を個別に分類
-    for (const sentence of sentences) {
-      if (!sentence.trim()) continue;
+利用可能なカテゴリ: ${categoriesText}
 
-      const prompt = `次の文章を指定されたカテゴリのいずれかに分類してください。
+分析ルール:
+1. テキスト内の異なる情報要素（価格、商品、サービス、環境など）を個別に識別する
+2. 各情報要素を最も適切なカテゴリに分類する
+3. 一つのテキストから複数の分類結果を抽出することが重要
+4. 価格情報は商品名と価格をセットで抽出する
+5. サービス情報、店舗環境情報なども個別に抽出する
+6. 店舗名、立地情報も個別に抽出する
 
-文章: "${sentence.trim()}"
+以下のJSON配列形式で回答してください（複数の分類結果を含めること）:
 
-カテゴリ一覧:
-${categoriesText}
+[
+  {
+    "category": "価格情報",
+    "text": "トマト28円",
+    "confidence": 0.9,
+    "reason": "商品価格の明確な記載"
+  },
+  {
+    "category": "価格情報", 
+    "text": "ネギ29円",
+    "confidence": 0.9,
+    "reason": "商品価格の明確な記載"
+  },
+  {
+    "category": "店舗環境",
+    "text": "非常に大きなお店",
+    "confidence": 0.8,
+    "reason": "店舗規模に関する情報"
+  },
+  {
+    "category": "店舗環境",
+    "text": "案内係というサービスがあります",
+    "confidence": 0.8,
+    "reason": "店舗サービスに関する情報"
+  }
+]
 
-以下のJSON形式で回答してください。余計な説明は一切不要です。
+重要: 一つのテキストから複数の異なる情報要素を必ず抽出してください。価格、サービス、環境などの情報が混在している場合は、それぞれを個別の分類結果として出力してください。JSON配列で複数の結果を返すことが必須です。`;
 
-{
-  "category": "カテゴリ名",
-  "text": "分析対象文章",
-  "confidence": 0.9,
-  "reason": "分類理由"
-}`;
+    try {
+      console.log('文章を分析中:', text.substring(0, 100) + '...');
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const content = response.text().trim();
+
+      console.log('Gemini応答:', content);
+
+      let classifications = [];
 
       try {
-        console.log('文章を分析中:', sentence.substring(0, 50) + '...');
+        // JSON配列の抽出を試みる
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const jsonArray = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(jsonArray)) {
+            classifications = jsonArray.filter(item => 
+              item.category && 
+              item.text && 
+              categories.some(cat => cat.name === item.category)
+            );
+            console.log('AI分類成功。結果数:', classifications.length);
+          }
+        }
+      } catch (parseError) {
+        console.error('JSONパースエラー:', parseError.message);
         
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const content = response.text().trim();
-
-        console.log('Gemini応答:', content);
-
-        // JSONの抽出を試みる
-        let jsonContent = null;
-
+        // パースに失敗した場合、単一オブジェクトとして解析を試みる
         try {
-          // JSONブロックを抽出
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            jsonContent = JSON.parse(jsonMatch[0]);
+          const singleJsonMatch = content.match(/\{[\s\S]*\}/);
+          if (singleJsonMatch) {
+            const singleResult = JSON.parse(singleJsonMatch[0]);
+            if (singleResult.category && singleResult.text && 
+                categories.some(cat => cat.name === singleResult.category)) {
+              classifications = [singleResult];
+              console.log('単一オブジェクト分類成功');
+            }
           }
-        } catch (parseError) {
-          console.error('JSONパースエラー:', parseError.message);
-          continue;
+        } catch (singleParseError) {
+          console.error('単一JSONパースも失敗:', singleParseError.message);
         }
-
-        // 有効な分類結果の確認
-        if (jsonContent && 
-            typeof jsonContent.category === 'string' && 
-            typeof jsonContent.text === 'string') {
-          
-          // カテゴリ名が有効かチェック
-          const isValidCategory = categories.some(cat => 
-            cat.name === jsonContent.category
-          );
-
-          if (isValidCategory) {
-            classifications.push({
-              category: jsonContent.category,
-              text: jsonContent.text,
-              confidence: typeof jsonContent.confidence === 'number' ? 
-                         jsonContent.confidence : 0.7,
-              reason: typeof jsonContent.reason === 'string' ? 
-                     jsonContent.reason : '分類理由なし'
-            });
-            console.log('分類成功:', jsonContent.category);
-          } else {
-            console.log('無効なカテゴリ名:', jsonContent.category);
-          }
-        } else {
-          console.log('無効な分類結果');
-        }
-
-      } catch (error) {
-        console.error('文章の分類中にエラー:', error.message);
       }
-    }
 
-    console.log('全文章の分類完了。結果数:', classifications.length);
-    
-    // 分類結果がない場合のフォールバック
-    if (classifications.length === 0) {
-      console.log('フォールバック分類を実行');
-      
-      const keywords = {
-        '価格情報': [
-          '円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト',
-          '値上げ', '値下げ', 'プライス', '料金', '定価', '原価', '利益', '粗利', '利幅',
-          'お買い得', 'バーゲン', '特価', '安価', '高価', '相場'
-        ],
-        '売り場情報': [
-          '売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ',
-          'コーナー', 'スペース', '売場', '平台', '山積み', 'フェイス', '什器', 'ショーケース',
-          'ディスプレイ', '売り場面積', '通路幅', '棚割り', '商品配置', 'POPスペース'
-        ],
-        '客層・混雑度': [
-          '客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人',
-          '来店', '客数', '男性', '女性', '学生', '主婦', '会社員', '観光客', '地元',
-          '客足', '入店', '退店', '滞在時間', '待ち時間', '行列'
-        ],
-        '商品・品揃え': [
-          '商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材',
-          'ブランド', '新商品', '定番', '季節商品', '限定', '品切れ', '品質', '鮮度',
-          'パッケージ', '売れ筋', '死に筋', '回転率', '仕入れ', '発注', '入荷'
-        ],
-        '店舗環境': [
-          '店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度',
-          '雰囲気', '清掃', '匂い', '臭い', '騒音', '快適', '不快', 'トイレ', '休憩所',
-          'アクセス', '案内表示', 'サイン', '外観', '内装', '床', '天井', '壁'
-        ]
-      };
+      // フォールバック: 改善されたキーワードベース分類
+      if (classifications.length === 0) {
+        console.log('AIによる分類が失敗、改善されたフォールバック分類を実行');
+        classifications = performKeywordBasedClassification(text);
+      }
 
-      sentences.forEach(sentence => {
-        Object.entries(keywords).forEach(([category, keywordList]) => {
-          const matchedKeywords = keywordList.filter(keyword => sentence.includes(keyword));
-          if (matchedKeywords.length > 0) {
-            classifications.push({
-              category: category,
-              text: sentence,
-              confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1)),
-              reason: `キーワード「${matchedKeywords.join('、')}」を検出`
-            });
-          }
-        });
+      // 重複除去（同じカテゴリの類似テキストを統合）
+      const uniqueClassifications = [];
+      classifications.forEach(item => {
+        const existing = uniqueClassifications.find(existing => 
+          existing.category === item.category && 
+          existing.text.includes(item.text.substring(0, 10))
+        );
+        
+        if (!existing) {
+          uniqueClassifications.push(item);
+        }
       });
-      
-      console.log('フォールバック分類結果数:', classifications.length);
-    }
 
-    res.json({ classifications });
+      console.log('分類完了。最終結果数:', uniqueClassifications.length);
+      res.json({ classifications: uniqueClassifications });
+
+    } catch (error) {
+      console.error('AI分類中にエラー:', error.message);
+      
+      // エラー時のフォールバック
+      const fallbackClassifications = performKeywordBasedClassification(text);
+      res.json({ classifications: fallbackClassifications });
+    }
 
   } catch (error) {
     console.error('AI文脈分類エラー:', error);
