@@ -6,6 +6,7 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
     "lucide-react": "^0.263.1",
     "xlsx": "^0.18.5"
   },
@@ -16,7 +17,6 @@
     "eject": "react-scripts eject"
   },
   "devDependencies": {
-    "react-scripts": "5.0.1",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.16",
@@ -41,5 +41,7 @@
       "last 1 safari version"
     ]
   },
-  "proxy": "http://localhost:3001"
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
