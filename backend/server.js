@@ -242,6 +242,43 @@ function splitIntoSentences(text) {
   return sentences;
 }
 
+// 分類結果をCSV形式に変換する関数
+function convertToCSVFormat(classifications, storeName = '') {
+  // 基本カテゴリ構造の定義
+  const csvStructure = {
+    store_name: storeName,
+    timestamp: new Date().toISOString(),
+    価格情報: [],
+    売り場情報: [],
+    客層_混雑度: [],
+    商品_品揃え: [],
+    店舗環境: []
+  };
+
+  // 分類結果を構造体に格納
+  classifications.forEach(item => {
+    const categoryKey = item.category === '客層・混雑度' ? '客層_混雑度' :
+                       item.category === '商品・品揃え' ? '商品_品揃え' :
+                       item.category;
+    if (csvStructure[categoryKey]) {
+      csvStructure[categoryKey].push(item.text);
+    }
+  });
+
+  // 各カテゴリの配列を文字列に変換
+  const csvData = {
+    store_name: csvStructure.store_name,
+    timestamp: csvStructure.timestamp,
+    価格情報: csvStructure.価格情報.join(' | '),
+    売り場情報: csvStructure.売り場情報.join(' | '),
+    客層_混雑度: csvStructure.客層_混雑度.join(' | '),
+    商品_品揃え: csvStructure.商品_品揃え.join(' | '),
+    店舗環境: csvStructure.店舗環境.join(' | ')
+  };
+
+  return csvData;
+}
+
 // 音声認識・分類API（ブラウザベース + Geminiバックアップ）
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
@@ -256,9 +293,17 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       // 改善されたキーワードベース分類を使用
       const categorizedItems = performKeywordBasedClassification(browserTranscript);
 
+      // 店舗名の抽出（CSVのstore_name用）
+      const storeNameMatch = browserTranscript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+      const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+      // CSV形式のデータを生成
+      const csvData = convertToCSVFormat(categorizedItems, storeName);
+
       return res.json({
         transcript: browserTranscript,
         categorized_items: categorizedItems,
+        csv_data: csvData,
         source: 'browser'
       });
     }
@@ -371,9 +416,17 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
         console.log('分類結果:', allClassifications);
 
+        // 店舗名の抽出（CSVのstore_name用）
+        const storeNameMatch = parsedResponse.transcript.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+        const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+        // CSV形式のデータを生成
+        const csvData = convertToCSVFormat(allClassifications, storeName);
+
         res.json({
           transcript: parsedResponse.transcript,
           categorized_items: allClassifications,
+          csv_data: csvData,
           source: 'gemini'
         });
 
@@ -383,9 +436,17 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         // パースに失敗した場合は、テキスト全体を transcript として扱う
         const categorizedItems = performKeywordBasedClassification(content);
 
+        // 店舗名の抽出（CSVのstore_name用）
+        const storeNameMatch = content.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+        const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+        // CSV形式のデータを生成
+        const csvData = convertToCSVFormat(categorizedItems, storeName);
+
         res.json({
           transcript: content,
           categorized_items: categorizedItems,
+          csv_data: csvData,
           source: 'gemini_fallback'
         });
       }
@@ -396,7 +457,8 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       res.status(500).json({
         error: '音声認識エラー',
         transcript: `音声認識に失敗しました: ${geminiError.message}`,
-        categorized_items: []
+        categorized_items: [],
+        csv_data: {}
       });
     }
 
@@ -411,7 +473,8 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       error: '音声認識処理中にエラーが発生しました',
       details: `${error.name}: ${error.message}`,
       transcript: `処理エラー: ${error.message}`,
-      categorized_items: []
+      categorized_items: [],
+      csv_data: {}
     });
   }
 });
@@ -545,7 +608,18 @@ app.post('/api/classify-context', async (req, res) => {
       });
 
       console.log('分類完了。最終結果数:', uniqueClassifications.length);
-      res.json({ classifications: uniqueClassifications });
+
+      // 店舗名の抽出（CSVのstore_name用）
+      const storeNameMatch = text.match(/([^\s、。]+(?:店|ストア|マート|スーパー))/);
+      const storeName = storeNameMatch ? storeNameMatch[1] : '';
+
+      // CSV形式のデータを生成
+      const csvData = convertToCSVFormat(uniqueClassifications, storeName);
+
+      res.json({ 
+        classifications: uniqueClassifications,
+        csv_data: csvData
+      });
 
     } catch (error) {
       console.error('AI分類中にエラー:', error.message);
@@ -560,7 +634,8 @@ app.post('/api/classify-context', async (req, res) => {
     res.status(500).json({ 
       error: '文脈分類処理中にエラーが発生しました',
       details: error.message,
-      classifications: []
+      classifications: [],
+      csv_data: {}
     });
   }
 });
