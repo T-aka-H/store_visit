@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Settings } from 'lucide-react';
+import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle } from 'lucide-react';
 
 function App() {
   const [storeName, setStoreName] = useState('');
@@ -21,28 +21,24 @@ function App() {
   const [showAiFeatures, setShowAiFeatures] = useState(false);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInput, setTextInput] = useState('');
-  const [useMockApi, setUseMockApi] = useState(false);
   
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
-  const [apiEndpoint, setApiEndpoint] = useState('https://store-visit-7cux.onrender.com/api/transcribe');
+  const apiEndpoint = 'https://store-visit-7cux.onrender.com/api/transcribe';
 
   const startRecording = async () => {
     try {
-      // モバイル特化の音声制約
       const constraints = {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          // モバイル最適化
           channelCount: 1,
-          sampleRate: 16000,  // 16kHzに下げて軽量化
+          sampleRate: 16000,
           sampleSize: 16
         }
       };
 
-      // HTTPS確認
       if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
         throw new Error('HTTPSが必要です。セキュアな接続でアクセスしてください。');
       }
@@ -50,10 +46,7 @@ function App() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       
-      // iPhone/Safari対応のMIME型検出
-      let mimeType = 'audio/mp4';  // iPhoneで最も安定
-      
-      // フォールバック順序
+      let mimeType = 'audio/mp4';
       const mimeTypes = [
         'audio/mp4',
         'audio/webm;codecs=opus',
@@ -68,11 +61,9 @@ function App() {
         }
       }
 
-      console.log('使用するMIME型:', mimeType);
-
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: mimeType,
-        audioBitsPerSecond: 64000  // 64kbpsで軽量化
+        audioBitsPerSecond: 64000
       });
       mediaRecorderRef.current = mediaRecorder;
       
@@ -86,12 +77,6 @@ function App() {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(chunks, { type: mimeType });
         
-        console.log('録音完了:', {
-          size: audioBlob.size,
-          type: audioBlob.type
-        });
-        
-        // ファイルサイズチェック（5MB制限）
         if (audioBlob.size > 5 * 1024 * 1024) {
           alert('録音ファイルが大きすぎます。短い音声で試してください。');
           return;
@@ -101,15 +86,12 @@ function App() {
         setAudioChunks([]);
       };
       
-      // 録音時間制限（30秒）
       mediaRecorder.start();
       setIsRecording(true);
       setAudioChunks(chunks);
       
-      // 30秒後に自動停止
       setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          console.log('30秒経過のため録音を自動停止');
           stopRecording();
         }
       }, 30000);
@@ -117,7 +99,6 @@ function App() {
     } catch (error) {
       console.error('録音開始エラー:', error);
       
-      // より詳細なエラーメッセージ
       let errorMessage = 'マイクアクセスに失敗しました。';
       
       if (error.name === 'NotAllowedError') {
@@ -126,8 +107,6 @@ function App() {
         errorMessage = 'マイクが見つかりません。';
       } else if (error.name === 'NotSupportedError') {
         errorMessage = 'このブラウザでは音声録音がサポートされていません。音声ファイルアップロード機能をお使いください。';
-      } else if (error.message.includes('HTTPS')) {
-        errorMessage = 'HTTPSが必要です。';
       }
       
       alert(errorMessage);
@@ -150,38 +129,21 @@ function App() {
     setIsProcessing(true);
     
     try {
-      console.log('=== 音声処理開始 ===');
-      console.log('モック状態:', useMockApi);
-      console.log('音声ファイル情報:', {
-        size: audioBlob.size,
-        type: audioBlob.type
-      });
-
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
       formData.append('categories', JSON.stringify(categories));
       
-      console.log('APIエンドポイント:', useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint);
-      console.log('送信するカテゴリ数:', categories.length);
-
-      const finalEndpoint = useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint;
-      
-      const response = await fetch(finalEndpoint, {
+      const response = await fetch(apiEndpoint, {
         method: 'POST',
         body: formData
       });
 
-      console.log('レスポンスステータス:', response.status);
-      console.log('レスポンスヘッダー:', Object.fromEntries(response.headers.entries()));
-
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('APIエラーレスポンス:', errorText);
         throw new Error(`API Error: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
-      console.log('API成功レスポンス:', result);
       
       if (result.transcript) {
         setTranscript(prev => prev + result.transcript + '\n\n');
@@ -210,25 +172,16 @@ function App() {
       }
       
     } catch (error) {
-      console.error('音声処理エラー（詳細）:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      });
+      console.error('音声処理エラー:', error);
       
-      // より詳細なエラーメッセージを表示
       let userMessage = '音声処理中にエラーが発生しました。';
       
       if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
         userMessage = 'ネットワークエラーです。インターネット接続を確認してください。';
       } else if (error.message.includes('413')) {
         userMessage = 'ファイルサイズが大きすぎます。短い音声で試してください。';
-      } else if (error.message.includes('400')) {
-        userMessage = '音声ファイルの形式に問題があります。';
       } else if (error.message.includes('500')) {
         userMessage = 'サーバーエラーです。しばらく時間をおいて再試行してください。';
-      } else {
-        userMessage = `エラー詳細: ${error.message}`;
       }
       
       alert(userMessage);
@@ -341,31 +294,14 @@ function App() {
     }
   };
 
-  // テスト用関数
-  const testMockEndpoint = async () => {
-    try {
-      console.log('モックエンドポイントテスト開始');
-      const response = await fetch('https://store-visit-7cux.onrender.com/api/test-mock');
-      const result = await response.json();
-      console.log('モックテスト結果:', result);
-      alert(`モックテスト成功: ${result.message}`);
-    } catch (error) {
-      console.error('モックテストエラー:', error);
-      alert(`モックテストエラー: ${error.message}`);
-    }
-  };
-
-  // テキスト入力処理関数
   const processTextInput = async () => {
     if (!textInput.trim()) return;
     
     setIsProcessing(true);
     
     try {
-      // テキストを音声ログに追加
       setTranscript(prev => prev + textInput + '\n\n');
       
-      // 簡単なキーワードマッチングでカテゴリ分類
       const newItems = [];
       categories.forEach(category => {
         const keywords = category.name.includes('価格') ? ['円', '価格', '値段', '安い', '高い'] :
@@ -385,7 +321,6 @@ function App() {
         });
       });
       
-      // カテゴリに分類
       if (newItems.length > 0) {
         setCategories(prevCategories => {
           const updatedCategories = [...prevCategories];
@@ -408,7 +343,6 @@ function App() {
         });
       }
       
-      // 入力をクリア
       setTextInput('');
       alert('テキストが正常に処理されました！');
       
@@ -447,22 +381,7 @@ function App() {
           />
         </div>
 
-        {/* ステータス表示エリア */}
-        <div className="mb-6 p-4 bg-slate-700/30 rounded-xl border border-slate-600">
-          <div className="flex flex-wrap gap-4 text-sm">
-            <span className="text-gray-300">
-              📡 API: <span className={useMockApi ? 'text-green-400 font-semibold' : 'text-blue-400 font-semibold'}>
-                {useMockApi ? 'モック API' : '実際の API'}
-              </span>
-            </span>
-            <span className="text-gray-300">
-              🎯 エンドポイント: <span className="text-cyan-400 font-mono text-xs">
-                {useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint}
-              </span>
-            </span>
-          </div>
-        </div>
-
+        {/* コントロールボタン */}
         <div className="flex flex-wrap gap-4 mb-8">
           <button
             onClick={isRecording ? stopRecording : startRecording}
@@ -488,26 +407,6 @@ function App() {
               disabled={isProcessing}
             />
           </label>
-          
-          <button
-            onClick={() => setUseMockApi(!useMockApi)}
-            className={`flex items-center gap-3 px-6 py-4 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105 ${
-              useMockApi 
-                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700' 
-                : 'bg-gradient-to-r from-gray-600 to-slate-600 text-gray-300 hover:from-gray-700 hover:to-slate-700'
-            }`}
-          >
-            <Settings size={20} />
-            {useMockApi ? 'モック ON' : 'モック OFF'}
-          </button>
-          
-          <button
-            onClick={testMockEndpoint}
-            className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105"
-          >
-            <HelpCircle size={20} />
-            モックテスト
-          </button>
           
           <button
             onClick={() => setShowTextInput(!showTextInput)}

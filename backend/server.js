@@ -1,4 +1,4 @@
-// server.js (完全版)
+// server.js (本番版)
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -17,15 +17,14 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// ファイルアップロード設定（モバイル対応）
+// ファイルアップロード設定
 const storage = multer.memoryStorage();
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MBに拡張（モバイル音声対応）
+    fileSize: 10 * 1024 * 1024 // 10MB制限
   },
   fileFilter: (req, file, cb) => {
-    // より広範囲の音声形式を許可
     const allowedMimes = [
       'audio/webm',
       'audio/mp4',
@@ -50,7 +49,7 @@ function bufferToBase64(buffer) {
   return buffer.toString('base64');
 }
 
-// 音声認識・分類API（iPhone対応版）
+// 音声認識・分類API
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     console.log('=== 音声認識リクエスト開始 ===');
@@ -84,7 +83,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     // iPhone特有のMIME型を標準化
     if (mimeType === 'audio/mp4' || mimeType === 'audio/m4a' || mimeType === 'audio/x-m4a') {
       console.log('iPhone音声ファイルを検出、標準形式として処理');
-      mimeType = 'audio/mp4'; // 統一
+      mimeType = 'audio/mp4';
     }
 
     // 音声をBase64に変換
@@ -93,7 +92,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // iPhone対応: JSONを使わない単純なプロンプト
+    // シンプルなプロンプト
     const prompt = `この音声ファイルの内容を日本語で文字起こししてください。
 
 音声が聞き取れない場合は「音声が不明瞭でした」と回答してください。
@@ -122,7 +121,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       console.log('レスポンス内容:', content);
       console.log('=== レスポンス終了 ===');
 
-      // JSONを期待せず、プレーンテキストとして処理
+      // プレーンテキストとして処理
       const finalResult = {
         transcript: content.trim() || '音声認識に失敗しました',
         categorized_items: []
@@ -303,56 +302,6 @@ ${transcript}
       answer: 'エラーが発生したため、質問に回答できませんでした。'
     });
   }
-});
-
-// テスト用モックAPI（緊急対応）
-app.post('/api/transcribe-mock', upload.single('audio'), async (req, res) => {
-  console.log('=== モックAPI呼び出し ===');
-  
-  try {
-    if (!req.file) {
-      console.log('ファイルなしエラー');
-      return res.status(400).json({ 
-        error: '音声ファイルが必要です',
-        transcript: 'ファイルが見つかりません',
-        categorized_items: []
-      });
-    }
-
-    // ファイル情報をログ出力
-    console.log('モックAPI - ファイル情報:', {
-      originalname: req.file?.originalname,
-      mimetype: req.file?.mimetype,
-      size: req.file?.size
-    });
-
-    // モック応答を返す
-    const mockResponse = {
-      transcript: `[モックAPI] 音声ファイル（${req.file.mimetype}, ${Math.round(req.file.size/1024)}KB）を正常に受信しました。このテキストはモックAPIからの応答です。実際のGemini APIではここに音声認識結果が表示されます。`,
-      categorized_items: []
-    };
-
-    console.log('モック成功レスポンス:', mockResponse);
-    res.json(mockResponse);
-
-  } catch (error) {
-    console.error('モックAPIエラー:', error);
-    res.status(500).json({
-      error: 'モックAPI処理エラー',
-      transcript: `モックAPI処理中にエラーが発生しました: ${error.message}`,
-      categorized_items: []
-    });
-  }
-});
-
-// 非常にシンプルなテストエンドポイント
-app.get('/api/test-mock', (req, res) => {
-  console.log('テストエンドポイント呼び出し');
-  res.json({
-    status: 'success',
-    message: 'モックAPIエンドポイントは正常に動作しています',
-    timestamp: new Date().toISOString()
-  });
 });
 
 // ヘルスチェック
