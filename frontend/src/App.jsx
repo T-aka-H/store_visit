@@ -976,134 +976,159 @@ function App() {
           </div>
         )}
 
-        {/* カテゴリ別結果表示 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
-          {categories.map((category, index) => (
-            <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
-              <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <span className="text-xl">
-                  {category.name.includes('価格') ? '💰' : 
-                   category.name.includes('売り場') ? '🏬' : 
-                   category.name.includes('客層') ? '👥' : 
-                   category.name.includes('商品') ? '📦' : '🏪'}
-                </span>
-                {category.name}
-              </h3>
-              <div className="space-y-2">
-                {category.items.length > 0 ? (
-                  category.items.map((item, itemIndex) => (
-                    <div key={itemIndex} className="bg-gray-50 rounded-lg p-3 border-l-4 border-blue-400">
-                      <p className="text-gray-700 leading-relaxed text-sm">{item.text}</p>
-                      <div className="mt-2 flex justify-between items-center text-xs text-gray-500">
-                        <span>信頼度: {Math.round(item.confidence * 100)}%</span>
-                        <span>{item.timestamp}</span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-gray-400 italic text-center py-6 text-sm">まだデータがありません</p>
-                )}
-              </div>
-            </div>
-          ))}
+        {/* 音声認識結果 */}
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+              🎤 音声認識結果
+            </h2>
+            <button
+              onClick={async () => {
+                if (!transcript) {
+                  alert('音声認識結果がありません。先に音声を認識してください。');
+                  return;
+                }
+                setIsProcessing(true);
+                try {
+                  await performAIClassification(transcript, categories, setCategories);
+                  alert('分類が完了しました！');
+                } catch (error) {
+                  console.error('分類エラー:', error);
+                  alert('分類処理中にエラーが発生しました: ' + error.message);
+                } finally {
+                  setIsProcessing(false);
+                }
+              }}
+              disabled={isWebSpeechRecording || isProcessing || !transcript}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50"
+            >
+              <ListTree size={16} />
+              <span className="text-sm font-medium">
+                {isProcessing ? '分類中...' : '音声認識結果を分類'}
+              </span>
+            </button>
+          </div>
+          <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+            {transcript ? (
+              <pre className="whitespace-pre-wrap text-gray-700 text-sm leading-relaxed font-sans">
+                {transcript}
+              </pre>
+            ) : (
+              <p className="text-gray-400 italic text-center py-6">
+                音声認識結果がここに表示されます
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* 音声ログ */}
-        {transcript && (
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              🎤 音声ログ
-            </h2>
-            <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-              <div className="whitespace-pre-wrap text-gray-700 leading-relaxed max-h-64 overflow-y-auto text-sm">
-                {transcript}
+        {/* カテゴリ別結果表示 */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            📊 分類結果
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {categories.map((category, index) => (
+              <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
+                <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <span className="text-xl">
+                    {category.name.includes('価格') ? '💰' : 
+                     category.name.includes('売り場') ? '🏬' : 
+                     category.name.includes('客層') ? '👥' : 
+                     category.name.includes('商品') ? '📦' : '🏪'}
+                  </span>
+                  {category.name}
+                </h3>
+                <div className="space-y-2">
+                  {category.items.length > 0 ? (
+                    category.items.map((item, itemIndex) => (
+                      <div key={itemIndex} className="bg-gray-50 rounded-lg p-3 border-l-4 border-blue-400">
+                        <p className="text-gray-700 leading-relaxed text-sm">{item.text}</p>
+                        <div className="mt-2 flex justify-between items-center text-xs text-gray-500">
+                          <span>信頼度: {Math.round(item.confidence * 100)}%</span>
+                          <span>{item.timestamp}</span>
+                        </div>
+                        {item.reason && (
+                          <p className="mt-1 text-xs text-gray-500 italic">
+                            理由: {item.reason}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-400 italic text-center py-6 text-sm">まだデータがありません</p>
+                  )}
+                </div>
               </div>
+            ))}
+          </div>
+        </div>
+
+        {/* AIインサイト生成 */}
+        {(categories.some(cat => cat.items.length > 0) || transcript) && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+                🤖 AIインサイト
+              </h2>
+              <button
+                onClick={generateInsights}
+                disabled={isProcessing}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md"
+              >
+                <Brain size={16} />
+                <span className="text-sm font-medium">
+                  {isProcessing ? '生成中...' : 'インサイト生成'}
+                </span>
+              </button>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+              {insights ? (
+                <div className="prose prose-sm max-w-none">
+                  <div dangerouslySetInnerHTML={{ __html: insights.replace(/\n/g, '<br/>') }} />
+                </div>
+              ) : (
+                <p className="text-gray-400 italic text-center py-6">
+                  「インサイト生成」ボタンを押すと、AIが分類結果を分析してインサイトを生成します
+                </p>
+              )}
             </div>
           </div>
         )}
 
-        {/* AI機能セクション */}
-        {showAiFeatures && (
-          <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm mb-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-semibold text-gray-700">
-                🧠 AI分析機能
-              </h2>
-              <button
-                onClick={() => setShowAiFeatures(false)}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all duration-200 text-sm"
-              >
-                非表示
-              </button>
-            </div>
-
-            <div className="space-y-6">
-              {/* インサイト生成 */}
-              <div>
+        {/* Q&A セクション */}
+        {(categories.some(cat => cat.items.length > 0) || transcript) && (
+          <div className="mb-8">
+            <h2 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              ❓ 質問応答
+            </h2>
+            <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+              <div className="flex gap-2 mb-4">
+                <input
+                  type="text"
+                  value={questionInput}
+                  onChange={(e) => setQuestionInput(e.target.value)}
+                  placeholder="視察データについて質問してください..."
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  disabled={isAnswering}
+                />
                 <button
-                  onClick={generateInsights}
-                  disabled={isProcessing}
-                  className="flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md"
+                  onClick={askQuestion}
+                  disabled={!questionInput.trim() || isAnswering}
+                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md"
                 >
-                  <Brain size={20} />
-                  {isProcessing ? 'AI分析中...' : 'ビジネスインサイト生成'}
-                </button>
-
-                {insights && (
-                  <div className="mt-4 bg-emerald-50 rounded-lg p-4 border border-emerald-200">
-                    <h3 className="text-lg font-semibold text-emerald-700 mb-3">📊 AI分析結果</h3>
-                    <div className="whitespace-pre-wrap text-gray-700 leading-relaxed text-sm">
-                      {insights}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 質問応答 */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-700 mb-3">💬 データに関する質問</h3>
-                <div className="flex gap-3 mb-4">
-                  <input
-                    type="text"
-                    value={questionInput}
-                    onChange={(e) => setQuestionInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && askQuestion()}
-                    placeholder="例: この店舗の強みは何ですか？改善点は？"
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400"
-                  />
-                  <button
-                    onClick={askQuestion}
-                    disabled={!questionInput.trim() || isAnswering}
-                    className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md whitespace-nowrap"
-                  >
+                  <span className="text-sm font-medium">
                     {isAnswering ? '回答中...' : '質問する'}
-                  </button>
-                </div>
-
-                {/* 質問応答履歴 */}
-                {qaPairs.length > 0 && (
-                  <div className="space-y-4">
-                    {qaPairs.map((qa, index) => (
-                      <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <div className="mb-3">
-                          <div className="flex items-start gap-2 mb-1">
-                            <span className="text-blue-600 font-medium text-sm">❓ 質問:</span>
-                            <span className="text-gray-700 text-sm">{qa.question}</span>
-                          </div>
-                          <div className="text-xs text-gray-500">{qa.timestamp}</div>
-                        </div>
-                        <div className="border-l-4 border-emerald-400 pl-3">
-                          <div className="flex items-start gap-2 mb-1">
-                            <span className="text-emerald-600 font-medium text-sm">💡 回答:</span>
-                          </div>
-                          <div className="text-gray-700 leading-relaxed whitespace-pre-wrap text-sm">
-                            {qa.answer}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  </span>
+                </button>
+              </div>
+              <div className="space-y-4">
+                {qaPairs.map((qa, index) => (
+                  <div key={index} className="border-b border-gray-100 last:border-0 pb-4 last:pb-0">
+                    <p className="text-gray-800 font-medium mb-2">Q: {qa.question}</p>
+                    <p className="text-gray-600 text-sm">A: {qa.answer}</p>
+                    <p className="text-gray-400 text-xs mt-1">{qa.timestamp}</p>
                   </div>
-                )}
+                ))}
               </div>
             </div>
           </div>
