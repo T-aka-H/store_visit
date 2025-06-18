@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree } from 'lucide-react';
 
+// APIエンドポイントの設定
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://store-visit-7cux.onrender.com'
+  : 'http://localhost:3001';
 
-const performAIClassification = async (text) => {
+const performAIClassification = async (text, categories, setCategories) => {
   console.log('performAIClassification 呼び出し:', text);
+  console.log('分類カテゴリ:', categories);
   
   try {
-    const response = await fetch('http://localhost:3001/api/classify-context', {
+    const response = await fetch(`${API_BASE_URL}/api/classify-context`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -214,7 +219,7 @@ function App() {
       }
 
       // AI分類を実行
-      await performAIClassification(transcriptText);
+      await performAIClassification(transcriptText, categories, setCategories);
 
       console.log('Web Speech 処理完了');
       
@@ -455,7 +460,7 @@ function App() {
         }
 
         // AI文脈理解による分類
-        await performAIClassification(result.transcript);
+        await performAIClassification(result.transcript, categories, setCategories);
       }
       
       if (result.categorized_items && Array.isArray(result.categorized_items) && result.categorized_items.length > 0) {
@@ -685,7 +690,7 @@ function App() {
       setTranscript(prev => prev + textInput + '\n\n');
       
       // AI分類を実行
-      await performAIClassification(textInput);
+      await performAIClassification(textInput, categories, setCategories);
       
       setTextInput('');
       alert('テキストが正常に処理されました！');
