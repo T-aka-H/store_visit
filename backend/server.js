@@ -17,12 +17,31 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// ファイルアップロード設定
+// ファイルアップロード設定（モバイル対応）
 const storage = multer.memoryStorage();
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB制限
+    fileSize: 10 * 1024 * 1024 // 10MBに拡張（モバイル音声対応）
+  },
+  fileFilter: (req, file, cb) => {
+    // より広範囲の音声形式を許可
+    const allowedMimes = [
+      'audio/webm',
+      'audio/mp4',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/x-m4a',
+      'audio/m4a',
+      'audio/aac'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      console.log('非対応MIME型:', file.mimetype);
+      cb(new Error(`非対応の音声形式です: ${file.mimetype}`), false);
+    }
   }
 });
 
@@ -31,10 +50,10 @@ function bufferToBase64(buffer) {
   return buffer.toString('base64');
 }
 
-// 音声認識・分類API
+// 音声認識・分類API（デバッグ強化版）
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
-    console.log('音声認識リクエスト受信');
+    console.log('=== 音声認識リクエスト開始 ===');
     console.log('ファイル情報:', {
       originalname: req.file?.originalname,
       mimetype: req.file?.mimetype,
@@ -45,29 +64,109 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: '音声ファイルが必要です' });
     }
 
+    // APIキーの存在確認
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY が設定されていません');
+      return res.status(500).json({ 
+        error: 'API設定エラー',
+        transcript: 'API設定に問題があります',
+        categorized_items: []
+      });
+    }
+
     const categories = JSON.parse(req.body.categories || '[]');
     const audioBuffer = req.file.buffer;
     const mimeType = req.file.mimetype;
 
+    console.log('カテゴリ数:', categories.length);
+    console.log('音声ファイルサイズ:', audioBuffer.length);
+
     // 音声をBase64に変換
     const base64Audio = bufferToBase64(audioBuffer);
+    console.log('Base64変換完了, 長さ:', base64Audio.length);
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // より明確で簡潔なプロンプト
-    const prompt = `
-音声の内容を日本語でテキスト化し、以下のカテゴリに分類してください。
-
-カテゴリ:
-${categories.map(cat => `- ${cat.name}`).join('\n')}
-
-必ず以下のJSON形式で応答してください:
+    // 非常にシンプルなプロンプト
+    const prompt = `音声の内容を日本語で文字起こししてください。以下のJSON形式で答えてください：
 {
-  "transcript": "音声をテキスト化した内容",
-  "categorized_items": [
-    {
-      "category": "該当するカテゴリ名",
-      "text": "該当する部分のテキスト",
+  "transcript": "音声の内容",
+  "categorized_items": []
+}`;
+
+    console.log('Gemini APIリクエスト送信中...');
+    
+    // タイムアウトを追加
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('API Timeout')), 30000); // 30秒タイムアウト
+    });
+
+    const apiPromise = model.generateContent([
+      { text: prompt },
+      {
+        inlineData: {
+          mimeType: mimeType,
+          data: base64Audio
+        }
+      }
+    ]);
+
+    const result = await Promise.race([apiPromise, timeoutPromise]);
+    console.log('Gemini APIレスポンス受信');
+
+    const response = await result.response;
+    const content = response.text();
+
+    console.log('=== Gemini API生レスポンス ===');
+    console.log('レスポンス長:', content.length);
+    console.log('レスポンス内容（最初の500文字）:', content.substring(0, 500));
+    console.log('レスポンス内容（最後の500文字）:', content.substring(Math.max(0, content.length - 500)));
+    console.log('=== レスポンス終了 ===');
+
+    // 非常にシンプルなフォールバック
+    let finalResult = {
+      transcript: content.replace(/```json|```/g, '').trim(),
+      categorized_items: []
+    };
+
+    // JSONの抽出を試みる
+    try {
+      // まず全体をJSONとして解析
+      finalResult = JSON.parse(content);
+      console.log('JSON解析成功（全体）');
+    } catch (e1) {
+      console.log('全体JSON解析失敗:', e1.message);
+      
+      // 波括弧で囲まれた部分を抽出
+      const jsonMatch = content.match(/\{[^{}]*"transcript"[^{}]*\}/);
+      if (jsonMatch) {
+        try {
+          finalResult = JSON.parse(jsonMatch[0]);
+          console.log('JSON解析成功（部分抽出）');
+        } catch (e2) {
+          console.log('部分JSON解析失敗:', e2.message);
+        }
+      }
+    }
+
+    console.log('最終レスポンス:', finalResult);
+    res.json(finalResult);
+
+  } catch (error) {
+    console.error('=== エラー詳細 ===');
+    console.error('エラー名:', error.name);
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
+    console.error('=== エラー終了 ===');
+    
+    res.status(500).json({ 
+      error: '音声認識処理中にエラーが発生しました',
+      details: `${error.name}: ${error.message}`,
+      transcript: `エラーが発生しました: ${error.message}`,
+      categorized_items: []
+    });
+  }
+});テキスト",
       "confidence": 0.8
     }
   ]

@@ -52,15 +52,16 @@ const StoreInspectionApp = () => {
 
   const startRecording = async () => {
     try {
-      // モバイル対応のオーディオ制約
+      // モバイル特化の音声制約
       const constraints = {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          // モバイル用の追加設定
+          // モバイル最適化
           channelCount: 1,
-          sampleRate: 44100
+          sampleRate: 16000,  // 16kHzに下げて軽量化
+          sampleSize: 16
         }
       };
 
@@ -72,20 +73,29 @@ const StoreInspectionApp = () => {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       
-      // モバイル対応のMIMEタイプ検出
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = 'audio/mp4';
-          if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = 'audio/wav';
-          }
+      // iPhone/Safari対応のMIME型検出
+      let mimeType = 'audio/mp4';  // iPhoneで最も安定
+      
+      // フォールバック順序
+      const mimeTypes = [
+        'audio/mp4',
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/wav'
+      ];
+      
+      for (const type of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          mimeType = type;
+          break;
         }
       }
 
+      console.log('使用するMIME型:', mimeType);
+
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: mimeType
+        mimeType: mimeType,
+        audioBitsPerSecond: 64000  // 64kbpsで軽量化
       });
       mediaRecorderRef.current = mediaRecorder;
       
@@ -98,13 +108,35 @@ const StoreInspectionApp = () => {
       
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(chunks, { type: mimeType });
+        
+        console.log('録音完了:', {
+          size: audioBlob.size,
+          type: audioBlob.type
+        });
+        
+        // ファイルサイズチェック（5MB制限）
+        if (audioBlob.size > 5 * 1024 * 1024) {
+          alert('録音ファイルが大きすぎます。短い音声で試してください。');
+          return;
+        }
+        
         await processAudioWithBackend(audioBlob);
         setAudioChunks([]);
       };
       
+      // 録音時間制限（30秒）
       mediaRecorder.start();
       setIsRecording(true);
       setAudioChunks(chunks);
+      
+      // 30秒後に自動停止
+      setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          console.log('30秒経過のため録音を自動停止');
+          stopRecording();
+        }
+      }, 30000);
+      
     } catch (error) {
       console.error('録音開始エラー:', error);
       
@@ -112,13 +144,13 @@ const StoreInspectionApp = () => {
       let errorMessage = 'マイクアクセスに失敗しました。';
       
       if (error.name === 'NotAllowedError') {
-        errorMessage = 'マイクの許可が必要です。ブラウザの設定でマイクアクセスを許可してください。';
+        errorMessage = 'マイクの許可が必要です。設定 > Safari > マイク で許可してください。';
       } else if (error.name === 'NotFoundError') {
-        errorMessage = 'マイクが見つかりません。デバイスにマイクが接続されているか確認してください。';
+        errorMessage = 'マイクが見つかりません。';
       } else if (error.name === 'NotSupportedError') {
-        errorMessage = 'このブラウザでは音声録音がサポートされていません。';
+        errorMessage = 'このブラウザでは音声録音がサポートされていません。音声ファイルアップロード機能をお使いください。';
       } else if (error.message.includes('HTTPS')) {
-        errorMessage = 'HTTPSが必要です。セキュアな接続でアクセスしてください。';
+        errorMessage = 'HTTPSが必要です。';
       }
       
       alert(errorMessage);
