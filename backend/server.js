@@ -107,7 +107,60 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const base64Audio = bufferToBase64(req.file.buffer);
 
-      const prompt = `この音声ファイルの内容を日本語で文字起こししてください。音声が聞き取れない場合は「音声が不明瞭でした」と回答してください。`;
+      const prompt = `あなたは小売店舗の視察データを分析する専門家です。
+以下の音声ファイルは店舗視察時の録音データです。以下の手順で分析してください：
+
+1. 音声の文字起こし
+- 日本語で正確に文字起こしを行ってください
+- 聞き取れない場合は「音声が不明瞭でした」と回答してください
+- 話者の口調や感情も可能な限り反映してください
+
+2. 内容の分類
+以下のカテゴリに関連する情報を抽出し、分類してください：
+
+価格情報:
+- 商品の価格、値段
+- セール、割引情報
+- 競合との価格比較
+- コスト関連の言及
+
+売り場情報:
+- 店舗レイアウト
+- 商品の陳列方法
+- 通路、棚の配置
+- 売り場の使い方
+
+客層・混雑度:
+- 来店客の特徴
+- 年齢層、性別
+- 混雑状況
+- 客数、客の動き
+
+商品・品揃え:
+- 取扱商品の種類
+- 品切れ、在庫状況
+- 商品の特徴
+- 品揃えの傾向
+
+店舗環境:
+- 店舗の雰囲気
+- 清潔さ、照明
+- 温度、空調
+- BGM、騒音レベル
+
+以下のJSON形式で回答してください：
+{
+  "transcript": "文字起こしの内容をここに記載",
+  "categories": [
+    {
+      "category": "カテゴリ名",
+      "text": "該当する発言内容",
+      "confidence": 0.8  // 0.1-1.0の範囲で確信度を設定
+    }
+  ]
+}
+
+音声が不明瞭な場合でも、聞き取れた部分から最大限の情報抽出を試みてください。`;
 
       const result = await model.generateContent([
         { text: prompt },
@@ -124,35 +177,68 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
       console.log('Geminiバックアップ成功:', content);
 
-      // カテゴリ自動分類（キーワードマッチング）
-      const categorizedItems = [];
-      const keywords = {
-        '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
-        '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
-        '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
-        '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
-        '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
-      };
+      try {
+        // JSONレスポースのパース
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        let parsedResponse = {
+          transcript: '音声認識に失敗しました',
+          categories: []
+        };
 
-      Object.entries(keywords).forEach(([category, keywordList]) => {
-        const matchedKeywords = keywordList.filter(keyword => content.includes(keyword));
-        
-        if (matchedKeywords.length > 0) {
-          console.log(`カテゴリ「${category}」でマッチ:`, matchedKeywords);
-          
-          categorizedItems.push({
-            category: category,
-            text: content,
-            confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1))
-          });
+        if (jsonMatch) {
+          const jsonContent = JSON.parse(jsonMatch[0]);
+          parsedResponse = {
+            transcript: jsonContent.transcript || '音声認識に失敗しました',
+            categories: jsonContent.categories || []
+          };
         }
-      });
 
-      res.json({
-        transcript: content || 'バックアップ音声認識に失敗しました',
-        categorized_items: categorizedItems,
-        source: 'gemini'
-      });
+        // カテゴリごとの分類結果を整形
+        const categorizedItems = parsedResponse.categories.map(item => ({
+          category: item.category,
+          text: item.text,
+          confidence: item.confidence || 0.7
+        }));
+
+        console.log('分類結果:', categorizedItems);
+
+        res.json({
+          transcript: parsedResponse.transcript,
+          categorized_items: categorizedItems,
+          source: 'gemini'
+        });
+
+      } catch (parseError) {
+        console.error('Geminiレスポースのパースエラー:', parseError);
+        
+        // パースに失敗した場合は、テキスト全体を transcript として扱う
+        const categorizedItems = [];
+        const keywords = {
+          '価格情報': ['円', '価格', '値段', '安い', '高い', '特売', 'セール', '割引', '税込', '税抜', 'コスト'],
+          '売り場情報': ['売り場', 'レイアウト', '陳列', '棚', '配置', '展示', '通路', 'エンド', 'ゴンドラ'],
+          '客層・混雑度': ['客', 'お客', '混雑', '空い', '客層', '年齢', '家族', '子供', '高齢', '若い', '人'],
+          '商品・品揃え': ['商品', '品揃え', '欠品', '在庫', '種類', '品目', 'アイテム', 'SKU', '商材'],
+          '店舗環境': ['店舗', '立地', '駐車場', '清潔', '照明', '音楽', '空調', '広い', '狭い', 'BGM', '温度']
+        };
+
+        // キーワードベースのフォールバック分類
+        Object.entries(keywords).forEach(([category, keywordList]) => {
+          const matchedKeywords = keywordList.filter(keyword => content.includes(keyword));
+          if (matchedKeywords.length > 0) {
+            categorizedItems.push({
+              category: category,
+              text: content,
+              confidence: Math.min(0.9, 0.6 + (matchedKeywords.length * 0.1))
+            });
+          }
+        });
+
+        res.json({
+          transcript: content,
+          categorized_items: categorizedItems,
+          source: 'gemini_fallback'
+        });
+      }
 
     } catch (geminiError) {
       console.error('Geminiバックアップ失敗:', geminiError);
