@@ -35,6 +35,11 @@ function bufferToBase64(buffer) {
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     console.log('音声認識リクエスト受信');
+    console.log('ファイル情報:', {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size
+    });
     
     if (!req.file) {
       return res.status(400).json({ error: '音声ファイルが必要です' });
@@ -49,31 +54,29 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
+    // より明確で簡潔なプロンプト
     const prompt = `
-以下の音声データは店舗視察の音声記録です。音声の内容を日本語でテキスト化し、以下のカテゴリに分類してください：
+音声の内容を日本語でテキスト化し、以下のカテゴリに分類してください。
 
 カテゴリ:
-${categories.map(cat => `- ${cat.name}: ${cat.description}`).join('\n')}
+${categories.map(cat => `- ${cat.name}`).join('\n')}
 
-出力形式（必ずJSON形式で応答してください）:
+必ず以下のJSON形式で応答してください:
 {
-  "transcript": "音声の完全なテキスト化",
+  "transcript": "音声をテキスト化した内容",
   "categorized_items": [
     {
-      "category": "カテゴリ名",
-      "text": "該当する発言内容",
+      "category": "該当するカテゴリ名",
+      "text": "該当する部分のテキスト",
       "confidence": 0.8
     }
   ]
 }
 
-重要な注意事項:
-- 音声に関連しない内容や不明瞭な部分は除外してください
-- カテゴリに該当しない内容は無視してください
-- 必ずJSON形式で応答してください
-- confidenceは0.0-1.0の範囲で設定してください
+音声が不明瞭な場合は、transcriptに「音声が不明瞭でした」と記載し、categorized_itemsは空配列にしてください。
 `;
 
+    console.log('Gemini APIにリクエスト送信');
     const result = await model.generateContent([
       { text: prompt },
       {
@@ -87,34 +90,62 @@ ${categories.map(cat => `- ${cat.name}: ${cat.description}`).join('\n')}
     const response = await result.response;
     const content = response.text();
 
-    console.log('Gemini API応答:', content);
+    console.log('Gemini API生レスポンス:', content);
 
-    // JSONを抽出して解析
+    // より堅牢なJSON抽出
+    let parsedResult;
     try {
+      // まず全体をJSONとして解析を試みる
+      parsedResult = JSON.parse(content);
+    } catch (firstParseError) {
+      console.log('全体のJSON解析失敗、部分抽出を試行');
+      
+      // JSONブロックを抽出して解析
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        const parsedResult = JSON.parse(jsonMatch[0]);
-        res.json(parsedResult);
+        try {
+          parsedResult = JSON.parse(jsonMatch[0]);
+        } catch (secondParseError) {
+          console.error('JSON抽出・解析失敗:', secondParseError);
+          
+          // フォールバック: プレーンテキストとして処理
+          parsedResult = {
+            transcript: content.replace(/```json|```/g, '').trim(),
+            categorized_items: []
+          };
+        }
       } else {
-        // JSONが見つからない場合のフォールバック
-        res.json({
+        console.log('JSONブロック未発見、フォールバック処理');
+        parsedResult = {
           transcript: content,
           categorized_items: []
-        });
+        };
       }
-    } catch (parseError) {
-      console.error('JSON解析エラー:', parseError);
-      res.json({
-        transcript: content,
-        categorized_items: []
-      });
     }
 
+    // レスポンス形式の検証と正規化
+    const normalizedResponse = {
+      transcript: parsedResult.transcript || content || '音声認識に失敗しました',
+      categorized_items: Array.isArray(parsedResult.categorized_items) 
+        ? parsedResult.categorized_items 
+        : []
+    };
+
+    console.log('正規化されたレスポンス:', normalizedResponse);
+    res.json(normalizedResponse);
+
   } catch (error) {
-    console.error('音声認識エラー:', error);
+    console.error('音声認識エラー詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
     res.status(500).json({ 
       error: '音声認識処理中にエラーが発生しました',
-      details: error.message 
+      details: error.message,
+      transcript: '処理中にエラーが発生しました',
+      categorized_items: []
     });
   }
 });
@@ -178,10 +209,16 @@ ${transcript}
     res.json({ insights });
 
   } catch (error) {
-    console.error('インサイト生成エラー:', error);
+    console.error('インサイト生成エラー詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
     res.status(500).json({ 
       error: 'インサイト生成中にエラーが発生しました',
-      details: error.message 
+      details: error.message,
+      insights: 'エラーが発生したため、インサイトを生成できませんでした。'
     });
   }
 });
@@ -233,10 +270,16 @@ ${transcript}
     res.json({ answer });
 
   } catch (error) {
-    console.error('質問応答エラー:', error);
+    console.error('質問応答エラー詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
     res.status(500).json({ 
       error: '質問応答処理中にエラーが発生しました',
-      details: error.message 
+      details: error.message,
+      answer: 'エラーが発生したため、質問に回答できませんでした。'
     });
   }
 });
