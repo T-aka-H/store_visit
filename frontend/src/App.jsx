@@ -62,7 +62,7 @@ const performAIClassification = async (text, categories, setCategories) => {
 };
 
 // 写真機能コンポーネント
-const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing }) => {
+const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, storeName }) => {
   const [photos, setPhotos] = useState([]);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -1229,6 +1229,7 @@ function App() {
           categories={categories}
           setCategories={setCategories}
           isProcessing={isProcessing}
+          storeName={storeName}
         />
 
         {/* コントロールボタン */}
