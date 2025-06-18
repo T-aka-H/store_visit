@@ -56,29 +56,56 @@ const THUMBNAIL_CONFIG = {
 };
 
 // 写真解析用プロンプト
-const PHOTO_ANALYSIS_PROMPT = `
-あなたは店舗視察の専門家です。以下の写真を分析し、店舗調査に関連する情報を抽出してください。
+const PHOTO_ANALYSIS_PROMPT = `あなたは小売店舗の視察写真を分析する専門家です。
+この写真から店舗視察に関連する重要な情報を抽出し、分類してください。
 
-分析観点：
-- 価格情報：値札、価格表示、セール情報など
-- 売り場情報：商品陳列、レイアウト、棚の配置など
-- 商品・品揃え：商品の種類、在庫状況、ブランドなど
-- 店舗環境：店内の雰囲気、清潔感、設備など
-- 客層・混雑度：お客様の様子、混雑状況など
+以下のカテゴリに関連する情報を抽出してください：
 
-以下のJSON形式で結果を返してください：
+価格情報:
+- 商品の価格、値段
+- セール、割引情報
+- 競合との価格比較
+- コスト関連の言及
+
+売り場情報:
+- 店舗レイアウト
+- 商品の陳列方法
+- 通路、棚の配置
+- 売り場の使い方
+
+客層・混雑度:
+- 来店客の特徴
+- 年齢層、性別
+- 混雑状況
+- 客数、客の動き
+
+商品・品揃え:
+- 取扱商品の種類
+- 品切れ、在庫状況
+- 商品の特徴
+- 品揃えの傾向
+
+店舗環境:
+- 店舗の雰囲気
+- 清潔さ、照明
+- 温度、空調
+- BGM、騒音レベル
+
+以下のJSON形式で回答してください：
 {
   "categories": [
     {
-      "category": "価格情報",
-      "items": ["具体的な価格情報"],
+      "category": "カテゴリ名",
+      "text": "該当する観察内容",
       "confidence": 0.8
     }
   ],
-  "description": "写真の全体的な説明",
-  "detectedElements": ["写真から読み取れる具体的な要素"]
-}
-`;
+  "description": "写真の詳細な説明（日本語）",
+  "detectedElements": [
+    "検出された要素1",
+    "検出された要素2"
+  ]
+}`;
 
 // 音声認識用プロンプト
 const SPEECH_CLASSIFICATION_PROMPT = `
@@ -565,7 +592,7 @@ app.post('/api/analyze-photo', async (req, res) => {
     console.log('=== 写真解析開始 ===');
     console.log('リクエストボディのキー:', Object.keys(req.body));
     
-    const { image, categories } = req.body;
+    const { image } = req.body;
 
     // 画像データの厳密なバリデーション
     if (!image) {
@@ -597,17 +624,24 @@ app.post('/api/analyze-photo', async (req, res) => {
         throw new Error('画像バッファの生成に失敗しました');
       }
 
+      console.log('画像バッファ生成成功:', {
+        bufferLength: imageBuffer.length,
+        isBuffer: Buffer.isBuffer(imageBuffer)
+      });
+
       // 画像処理とサムネイル生成
       const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
 
       // Gemini Vision APIによる解析
       const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+
+      console.log('Gemini Vision API呼び出し開始');
       const result = await model.generateContent([
         { text: PHOTO_ANALYSIS_PROMPT },
         {
           inlineData: {
             mimeType: "image/jpeg",
-            data: base64Data
+            data: imageBuffer
           }
         }
       ]);
@@ -615,54 +649,103 @@ app.post('/api/analyze-photo', async (req, res) => {
       const response = await result.response;
       const content = response.text().trim();
 
-      console.log('Gemini Vision API応答:', content);
-
-      // 解析結果のパース
-      let analysis = {
-        categories: [],
-        description: '画像解析が完了しました',
-        detectedElements: []
-      };
+      console.log('Gemini Vision応答受信成功');
 
       try {
+        // JSONレスポースのパース
         const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsedAnalysis = JSON.parse(jsonMatch[0]);
-          analysis = { ...analysis, ...parsedAnalysis };
+        if (!jsonMatch) {
+          throw new Error('JSON形式の応答が見つかりません');
         }
+
+        const analysis = JSON.parse(jsonMatch[0]);
+        
+        // キーワードベース分類を追加
+        const keywordClassifications = performKeywordBasedClassification(analysis.description);
+        
+        // 分類結果を統合（重複を除去）
+        const allClassifications = [
+          ...(analysis.categories || []),
+          ...keywordClassifications
+        ].reduce((unique, item) => {
+          const exists = unique.some(u => 
+            u.category === item.category && 
+            u.text === item.text
+          );
+          if (!exists) {
+            unique.push(item);
+          }
+          return unique;
+        }, []);
+
+        console.log('分類結果:', {
+          totalCategories: allClassifications.length,
+          categories: allClassifications.map(c => c.category)
+        });
+
+        // 写真データの保存
+        const photoData = {
+          processedImage: {
+            data: `data:image/jpeg;base64,${processedImage.optimized}`,
+            metadata: processedImage.metadata
+          },
+          analysis: {
+            categories: allClassifications,
+            description: analysis.description,
+            detectedElements: analysis.detectedElements || []
+          },
+          timestamp: new Date().toISOString()
+        };
+
+        // 写真をストレージに保存
+        const photoId = photoStorage.addPhoto(photoData);
+
+        res.json({
+          id: photoId,
+          ...photoData
+        });
+
       } catch (parseError) {
-        console.log('JSON解析エラー、デフォルト値を使用:', parseError.message);
-        analysis.description = content.substring(0, 200) + '...';
+        console.error('Gemini Vision応答のパースエラー:', parseError);
+        console.error('受信した内容:', content);
+        
+        // パース失敗時のフォールバック
+        const keywordClassifications = performKeywordBasedClassification(content);
+        
+        const fallbackPhotoData = {
+          processedImage: {
+            data: `data:image/jpeg;base64,${processedImage.optimized}`,
+            metadata: processedImage.metadata
+          },
+          analysis: {
+            categories: keywordClassifications,
+            description: content.substring(0, 200) + '...',
+            detectedElements: []
+          },
+          timestamp: new Date().toISOString()
+        };
+
+        // フォールバックデータを保存
+        const photoId = photoStorage.addPhoto(fallbackPhotoData);
+        
+        res.json({
+          id: photoId,
+          ...fallbackPhotoData
+        });
       }
-      
-      // 写真データの保存
-      const photoData = {
-        processedImage: {
-          data: `data:image/jpeg;base64,${processedImage.optimized}`,
-          metadata: processedImage.metadata
-        },
-        analysis: analysis
-      };
-
-      // 写真をストレージに保存
-      const photoId = photoStorage.addPhoto(photoData);
-
-      res.json({
-        id: photoId,
-        ...photoData
-      });
 
     } catch (error) {
       console.error('写真処理エラー:', error);
-      res.status(500).json({
-        error: '写真処理エラー',
-        details: error.message
-      });
+      throw error;
     }
 
   } catch (error) {
-    console.error('=== 全体エラー ===');
-    console.error(error);
+    console.error('=== 写真解析エラー ===');
+    console.error('エラー名:', error.name);
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
+    console.error('=== エラー終了 ===');
+    
     res.status(500).json({
       error: '処理エラー',
       details: error.message
