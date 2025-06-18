@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree } from 'lucide-react';
+import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin } from 'lucide-react';
 
 // APIエンドポイントの設定
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
@@ -60,6 +60,410 @@ const performAIClassification = async (text, categories, setCategories) => {
   }
 };
 
+// 写真機能コンポーネント
+const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing }) => {
+  const [photos, setPhotos] = useState([]);
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // iPhone向け写真撮影（ネイティブカメラ起動）
+  const capturePhoto = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+    input.multiple = true;
+    
+    input.onchange = (event) => {
+      const files = Array.from(event.target.files);
+      files.forEach(file => processPhoto(file));
+    };
+    
+    input.click();
+  };
+
+  // 写真処理（AI解析 + 自動分類）
+  const processPhoto = async (file) => {
+    try {
+      setIsAnalyzing(true);
+      
+      // Base64変換
+      const base64 = await fileToBase64(file);
+      
+      // 位置情報とメタデータ取得
+      const metadata = await extractPhotoMetadata(file);
+      
+      // AI解析でカテゴリ自動判定
+      const analysis = await analyzePhotoWithGemini(base64);
+      
+      const photoData = {
+        id: Date.now() + Math.random(),
+        file: file,
+        base64: base64,
+        timestamp: new Date().toLocaleString('ja-JP'),
+        metadata: metadata,
+        analysis: analysis,
+        category: analysis?.suggestedCategory || '店舗環境',
+        description: analysis?.description || '',
+        confidence: analysis?.confidence || 0,
+        size: file.size,
+        name: file.name || `photo_${Date.now()}.jpg`
+      };
+
+      setPhotos(prev => [...prev, photoData]);
+      
+      // カテゴリに自動追加
+      if (analysis?.suggestedCategory && analysis?.description) {
+        addPhotoToCategory(photoData);
+      }
+      
+      onPhotoAdded?.(photoData);
+      
+    } catch (error) {
+      console.error('写真処理エラー:', error);
+      alert('写真の処理中にエラーが発生しました');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Gemini Vision APIで写真解析
+  const analyzePhotoWithGemini = async (base64Image) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          image: base64Image.split(',')[1],
+          categories: categories.map(c => c.name)
+        })
+      });
+      
+      if (!response.ok) throw new Error('AI解析に失敗');
+      
+      return await response.json();
+    } catch (error) {
+      console.error('AI解析エラー:', error);
+      return {
+        suggestedCategory: '店舗環境',
+        description: '写真が追加されました',
+        confidence: 0.5,
+        detectedElements: []
+      };
+    }
+  };
+
+  // 写真をカテゴリに自動追加
+  const addPhotoToCategory = (photoData) => {
+    setCategories(prevCategories => {
+      const updatedCategories = [...prevCategories];
+      const categoryIndex = updatedCategories.findIndex(
+        cat => cat.name === photoData.category
+      );
+      
+      if (categoryIndex !== -1) {
+        updatedCategories[categoryIndex].items.push({
+          text: `📸 ${photoData.description}`,
+          confidence: photoData.confidence,
+          reason: 'AI写真解析による自動分類',
+          timestamp: photoData.timestamp,
+          photoId: photoData.id,
+          isPhoto: true
+        });
+      }
+      
+      return updatedCategories;
+    });
+  };
+
+  // Base64変換
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // 写真メタデータ抽出
+  const extractPhotoMetadata = async (file) => {
+    try {
+      const location = await getCurrentLocation();
+      
+      return {
+        size: `${(file.size / 1024 / 1024).toFixed(1)}MB`,
+        type: file.type,
+        lastModified: new Date(file.lastModified).toLocaleString('ja-JP'),
+        location: location
+      };
+    } catch (error) {
+      return { size: `${(file.size / 1024 / 1024).toFixed(1)}MB` };
+    }
+  };
+
+  // 位置情報取得
+  const getCurrentLocation = () => {
+    return new Promise((resolve) => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => resolve({
+            lat: position.coords.latitude.toFixed(6),
+            lng: position.coords.longitude.toFixed(6),
+            accuracy: Math.round(position.coords.accuracy)
+          }),
+          () => resolve(null),
+          { timeout: 5000, enableHighAccuracy: true }
+        );
+      } else {
+        resolve(null);
+      }
+    });
+  };
+
+  // 写真削除
+  const removePhoto = (photoId) => {
+    setPhotos(prev => prev.filter(photo => photo.id !== photoId));
+    
+    setCategories(prevCategories => {
+      return prevCategories.map(category => ({
+        ...category,
+        items: category.items.filter(item => item.photoId !== photoId)
+      }));
+    });
+  };
+
+  // ファイルサイズフォーマット
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  };
+
+  return (
+    <div className="mb-6">
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+          📸 視察写真
+          {photos.length > 0 && (
+            <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">
+              {photos.length}枚
+            </span>
+          )}
+        </h2>
+        <button
+          onClick={capturePhoto}
+          disabled={isAnalyzing || isProcessing}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm hover:shadow-md transition-all duration-200"
+        >
+          <Camera size={16} />
+          <span className="text-sm font-medium">
+            {isAnalyzing ? '解析中...' : '写真撮影'}
+          </span>
+        </button>
+      </div>
+
+      {/* 解析中インジケーター */}
+      {isAnalyzing && (
+        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+            <span className="text-blue-700 text-sm font-medium">
+              🤖 AIが写真を解析中... 自動でカテゴリ分類します
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 写真一覧 */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+        {photos.length > 0 ? (
+          <div className="p-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {photos.map((photo) => (
+                <div key={photo.id} className="relative group">
+                  <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
+                    <img
+                      src={photo.base64}
+                      alt={photo.description}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
+                      <div className="opacity-0 group-hover:opacity-100 flex gap-2">
+                        <button
+                          onClick={() => setSelectedPhoto(photo)}
+                          className="p-2 bg-white bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
+                        >
+                          <Eye size={16} className="text-gray-700" />
+                        </button>
+                        <button
+                          onClick={() => removePhoto(photo.id)}
+                          className="p-2 bg-red-500 bg-opacity-90 rounded-full hover:bg-opacity-100 transition-all"
+                        >
+                          <X size={16} className="text-white" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* 写真情報 */}
+                  <div className="mt-2 text-xs text-gray-600">
+                    <div className="flex items-center gap-1 mb-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-green-400"></span>
+                      <span className="font-medium">{photo.category}</span>
+                    </div>
+                    <div className="text-gray-500">
+                      {photo.timestamp.split(' ')[1]}
+                    </div>
+                    {photo.analysis?.confidence && (
+                      <div className="text-blue-600">
+                        信頼度: {Math.round(photo.analysis.confidence * 100)}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-gray-400">
+            <Camera size={48} className="mx-auto mb-3 opacity-50" />
+            <p>まだ写真がありません</p>
+            <p className="text-sm mt-1">「写真撮影」ボタンでiPhoneカメラが起動します</p>
+          </div>
+        )}
+      </div>
+
+      {/* 写真詳細モーダル */}
+      {selectedPhoto && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-75 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">写真詳細</h3>
+                <button
+                  onClick={() => setSelectedPhoto(null)}
+                  className="p-2 hover:bg-gray-100 rounded-full"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <img
+                src={selectedPhoto.base64}
+                alt={selectedPhoto.description}
+                className="w-full rounded-lg mb-4"
+              />
+              
+              <div className="space-y-3 text-sm">
+                <div>
+                  <span className="font-medium text-gray-700">カテゴリ:</span>
+                  <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                    {selectedPhoto.category}
+                  </span>
+                </div>
+                
+                <div>
+                  <span className="font-medium text-gray-700">AI分析結果:</span>
+                  <p className="mt-1 text-gray-600">{selectedPhoto.description}</p>
+                </div>
+                
+                <div>
+                  <span className="font-medium text-gray-700">撮影日時:</span>
+                  <span className="ml-2 text-gray-600">{selectedPhoto.timestamp}</span>
+                </div>
+                
+                <div>
+                  <span className="font-medium text-gray-700">ファイルサイズ:</span>
+                  <span className="ml-2 text-gray-600">{formatFileSize(selectedPhoto.size)}</span>
+                </div>
+                
+                {selectedPhoto.metadata?.location && (
+                  <div>
+                    <span className="font-medium text-gray-700 flex items-center gap-1">
+                      <MapPin size={14} />
+                      位置情報:
+                    </span>
+                    <span className="ml-2 text-gray-600 text-xs">
+                      {selectedPhoto.metadata.location.lat}, {selectedPhoto.metadata.location.lng}
+                      (精度: ±{selectedPhoto.metadata.location.accuracy}m)
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 分類結果テーブルコンポーネント
+const ClassificationTable = ({ category, items }) => {
+  return (
+    <div className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">{category}</h3>
+      <div className="overflow-x-auto">
+        <table className="min-w-full bg-white border border-gray-200">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="px-4 py-2 text-left border-b">コメント</th>
+              <th className="px-4 py-2 text-center border-b w-24">信頼度</th>
+              <th className="px-4 py-2 text-center border-b w-32">記録時刻</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, index) => (
+              <tr key={index} className="hover:bg-gray-50">
+                <td className="px-4 py-2 border-b">{item.text}</td>
+                <td className="px-4 py-2 text-center border-b">
+                  {typeof item.confidence === 'number' 
+                    ? `${Math.round(item.confidence * 100)}%`
+                    : item.confidence}
+                </td>
+                <td className="px-4 py-2 text-center border-b text-sm">
+                  {item.timestamp || new Date().toLocaleTimeString()}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// カテゴリ名の日英対応
+const CATEGORY_MAPPING = {
+  '価格情報': 'price_info',
+  '売り場情報': 'layout_info',
+  '客層・混雑度': 'customer_info',
+  '商品・品揃え': 'product_info',
+  '店舗環境': 'environment_info'
+};
+
+// CSVデータを分類結果に変換する関数
+const convertCsvToCategories = (csvData) => {
+  if (!csvData || !csvData.row) return [];
+
+  return Object.entries(CATEGORY_MAPPING).map(([jaName, enKey]) => {
+    const items = csvData.row[enKey]
+      ? csvData.row[enKey].split(' | ').map(text => ({
+          text,
+          confidence: 0.9,
+          timestamp: new Date().toLocaleTimeString()
+        }))
+      : [];
+
+    return {
+      name: jaName,
+      items
+    };
+  });
+};
+
+// メインアプリコンポーネント
 function App() {
   const [storeName, setStoreName] = useState('');
   const [categories, setCategories] = useState([
@@ -81,12 +485,13 @@ function App() {
   const [showTextInput, setShowTextInput] = useState(false);
   const [isWebSpeechSupported, setIsWebSpeechSupported] = useState(false);
   const [isWebSpeechRecording, setIsWebSpeechRecording] = useState(false);
+  const [photos, setPhotos] = useState([]); // 写真データ
   const recognitionRef = useRef(null);
   const [textInput, setTextInput] = useState('');
   
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
-  const apiEndpoint = 'https://store-visit-7cux.onrender.com/api/transcribe';
+  const apiEndpoint = `${API_BASE_URL}/api/transcribe`;
 
   // Web Speech API サポート確認
   useEffect(() => {
@@ -95,7 +500,6 @@ function App() {
       setIsWebSpeechSupported(true);
       console.log('Web Speech API サポート確認済み');
       
-      // 音声認識インスタンス作成
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -136,7 +540,6 @@ function App() {
           }
         }
 
-        // リアルタイム表示更新
         const currentDisplay = finalTranscript + interimTranscript;
         if (currentDisplay.trim()) {
           setTranscript(prev => {
@@ -169,7 +572,6 @@ function App() {
         setIsWebSpeechRecording(false);
         
         if (finalTranscript.trim()) {
-          // 最終的な文字起こし結果を処理
           processWebSpeechResult(finalTranscript.trim());
         }
       };
@@ -192,12 +594,20 @@ function App() {
 
   const processWebSpeechResult = async (transcriptText) => {
     console.log('=== Web Speech 結果処理開始 ===');
-    console.log('認識テキスト:', transcriptText);
-    
     setIsProcessing(true);
     
     try {
-      // 音声ログを更新（[録音中]を削除して確定版に）
+      const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: transcriptText })
+      });
+
+      if (!response.ok) throw new Error('音声認識処理に失敗しました');
+      
+      const result = await response.json();
+      processClassificationResult(result);
+      
       setTranscript(prev => {
         const lines = prev.split('\n\n');
         const lastLine = lines[lines.length - 1];
@@ -209,8 +619,7 @@ function App() {
         return lines.join('\n\n');
       });
 
-      // 店舗名自動抽出
-      if (!storeName) { // 店舗名が未設定の場合のみ
+      if (!storeName) {
         const extractedStoreName = extractStoreName(transcriptText);
         if (extractedStoreName) {
           console.log('店舗名を自動抽出:', extractedStoreName);
@@ -218,8 +627,6 @@ function App() {
         }
       }
 
-      console.log('Web Speech 処理完了');
-      
     } catch (error) {
       console.error('Web Speech 結果処理エラー:', error);
       alert('音声認識結果の処理中にエラーが発生しました: ' + error.message);
@@ -232,48 +639,11 @@ function App() {
   const extractStoreName = (text) => {
     console.log('店舗名抽出開始:', text);
     
-    // 店舗名パターンのマッチング
     const storePatterns = [
-      // 「店舗名〇〇」パターン（最優先）
       /店舗名\s*([^。、\s]+)/i,
       /店舗名は\s*([^。、\s]+)/i,
-      
-      // 基本パターン
       /(?:今日は|今回は|本日は)?\s*(.+?店)\s*(?:に来|を視察|の視察|について|です|だ|。)/i,
       /(?:ここは|この店は)?\s*(.+?店)\s*(?:です|だ|。|の)/i,
-      
-      // 多様な店舗形態対応
-      /(?:今日は|今回は|本日は)?\s*(.+?(?:店|薬局|クリニック|病院|商会|商店|マート|ストア|ショップ|デパート|百貨店|スーパー|コンビニ|書店|本屋|美容室|理容室|カフェ|レストラン|居酒屋|料理店|焼肉店|寿司店|ラーメン店|パン屋|ケーキ店|花屋|クリーニング店|修理店|整備工場|ガソリンスタンド|銀行|郵便局|役所|市役所|区役所|図書館|体育館|プール|公園))\s*(?:に来|を視察|の視察|について|です|だ|。)/i,
-      
-      // 具体的店舗チェーン
-      /(イオン\w*店?|アピタ\w*店?|ピアゴ\w*店?)/i,
-      /(ドン・?キホーテ\w*店?|ドンキ\w*店?)/i,
-      /(セブン-?イレブン\w*店?|セブン\w*店?)/i,
-      /(ファミリーマート\w*店?|ファミマ\w*店?)/i,
-      /(ローソン\w*店?)/i,
-      /(コストコ\w*店?)/i,
-      /(西友\w*店?|サニー\w*店?)/i,
-      /(マックスバリュ\w*店?)/i,
-      /(ヨーカドー\w*店?|イトーヨーカドー\w*店?)/i,
-      /(ライフ\w*店?)/i,
-      /(マルエツ\w*店?)/i,
-      /(業務スーパー\w*店?)/i,
-      /(ヤマダ電機\w*店?|ヤマダデンキ\w*店?)/i,
-      /(ビックカメラ\w*店?|ビッグカメラ\w*店?)/i,
-      /(ヨドバシカメラ\w*店?|ヨドバシ\w*店?)/i,
-      /(ユニクロ\w*店?)/i,
-      /(無印良品\w*店?|MUJI\w*店?)/i,
-      /(ダイソー\w*店?)/i,
-      /(ニトリ\w*店?)/i,
-      /(スターバックス\w*店?|スタバ\w*店?)/i,
-      /(マクドナルド\w*店?|マック\w*店?)/i,
-      /(ケンタッキー\w*店?|KFC\w*店?)/i,
-      
-      // 地名 + 店舗
-      /([あ-ん一-龯ァ-ヴｦ-ﾟ]+(?:駅|店|店舗|SC|モール|プラザ|ショッピングセンター|薬局|クリニック|病院|商会|商店|マート|ストア))/i,
-      
-      // 汎用パターン（より広範囲）
-      /([あ-ん一-龯ァ-ヴｦ-ﾟ\w]{2,}(?:店|薬局|クリニック|病院|商会|商店|マート|ストア|ショップ|デパート|百貨店|スーパー|コンビニ|書店|本屋|美容室|理容室|カフェ|レストラン|居酒屋|料理店|焼肉店|寿司店|ラーメン店|パン屋|ケーキ店|花屋|クリーニング店|修理店|整備工場|ガソリンスタンド|銀行|郵便局))/i
     ];
 
     for (const pattern of storePatterns) {
@@ -281,13 +651,11 @@ function App() {
       if (match && match[1]) {
         let storeName = match[1].trim();
         
-        // 不要な文字を除去
         storeName = storeName
-          .replace(/^(の|を|に|で|は|が|も)\s*/, '') // 助詞除去
-          .replace(/\s*(です|だ|である|。|、)$/, '') // 語尾除去
+          .replace(/^(の|を|に|で|は|が|も)\s*/, '')
+          .replace(/\s*(です|だ|である|。|、)$/, '')
           .trim();
         
-        // 最小長チェック（2文字以上、50文字以下）
         if (storeName.length >= 2 && storeName.length <= 50) {
           console.log('店舗名マッチ:', storeName, 'パターン:', pattern);
           return storeName;
@@ -295,177 +663,8 @@ function App() {
       }
     }
     
-    // キーワードベース抽出（拡張版）
-    const storeKeywords = ['店', '店舗', 'モール', 'SC', 'ショッピングセンター', 'プラザ', '薬局', 'クリニック', '病院', '商会', '商店', 'マート', 'ストア', 'ショップ', 'デパート', '百貨店', 'スーパー', 'コンビニ', '書店', '本屋', '美容室', '理容室', 'カフェ', 'レストラン', '居酒屋'];
-    
-    for (const keyword of storeKeywords) {
-      if (text.includes(keyword)) {
-        // キーワード周辺の文字列を抽出
-        const keywordIndex = text.indexOf(keyword);
-        const start = Math.max(0, keywordIndex - 20);
-        const end = Math.min(text.length, keywordIndex + keyword.length + 5);
-        const surrounding = text.substring(start, end);
-        
-        // 店舗名らしき部分を抽出
-        const storeMatch = surrounding.match(/([あ-ん一-龯ァ-ヴｦ-ﾟ\w]{2,20}(?:店|モール|SC|プラザ|薬局|クリニック|病院|商会|商店|マート|ストア|ショップ|デパート|百貨店|スーパー|コンビニ|書店|本屋|美容室|理容室|カフェ|レストラン|居酒屋))/);
-        if (storeMatch) {
-          console.log('キーワードベース抽出:', storeMatch[1]);
-          return storeMatch[1];
-        }
-      }
-    }
-    
     console.log('店舗名抽出失敗');
     return null;
-  };
-
-  const startRecording = async () => {
-    try {
-      const constraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 16000,
-          sampleSize: 16
-        }
-      };
-
-      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-        throw new Error('HTTPSが必要です。セキュアな接続でアクセスしてください。');
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      let mimeType = 'audio/mp4';
-      const mimeTypes = [
-        'audio/mp4',
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/wav'
-      ];
-      
-      for (const type of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          mimeType = type;
-          break;
-        }
-      }
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: mimeType,
-        audioBitsPerSecond: 64000
-      });
-      mediaRecorderRef.current = mediaRecorder;
-      
-      const chunks = [];
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
-      
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: mimeType });
-        
-        if (audioBlob.size > 5 * 1024 * 1024) {
-          alert('録音ファイルが大きすぎます。短い音声で試してください。');
-          return;
-        }
-        
-        await processAudioWithBackend(audioBlob);
-        setAudioChunks([]);
-      };
-      
-      mediaRecorder.start();
-      setIsRecording(true);
-      setAudioChunks(chunks);
-      
-      setTimeout(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          stopRecording();
-        }
-      }, 30000);
-      
-    } catch (error) {
-      console.error('録音開始エラー:', error);
-      
-      let errorMessage = 'マイクアクセスに失敗しました。';
-      
-      if (error.name === 'NotAllowedError') {
-        errorMessage = 'マイクの許可が必要です。設定 > Safari > マイク で許可してください。';
-      } else if (error.name === 'NotFoundError') {
-        errorMessage = 'マイクが見つかりません。';
-      } else if (error.name === 'NotSupportedError') {
-        errorMessage = 'このブラウザでは音声録音がサポートされていません。音声ファイルアップロード機能をお使いください。';
-      }
-      
-      alert(errorMessage);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-    
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-  };
-
-  const processAudioWithBackend = async (audioBlob) => {
-    console.log('音声ファイル処理開始');
-    setIsProcessing(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('audio', audioBlob);
-
-      const response = await fetch(apiEndpoint, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error('音声認識に失敗しました');
-      }
-
-      const result = await response.json();
-      console.log('音声認識結果:', result);
-
-      if (result.transcript) {
-        // 音声ログを更新
-        setTranscript(prev => prev + result.transcript + '\n\n');
-
-        // 店舗名自動抽出
-        if (!storeName) {
-          const extractedStoreName = extractStoreName(result.transcript);
-          if (extractedStoreName) {
-            console.log('店舗名を自動抽出:', extractedStoreName);
-            setStoreName(extractedStoreName);
-          }
-        }
-      }
-
-    } catch (error) {
-      console.error('音声処理エラー:', error);
-      alert('音声処理中にエラーが発生しました: ' + error.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      await processAudioWithBackend(file);
-      event.target.value = '';
-    }
   };
 
   const clearData = () => {
@@ -475,6 +674,25 @@ function App() {
     setQaPairs([]);
     setQuestionInput('');
     setTextInput('');
+    setPhotos([]);
+  };
+
+  const processTextInput = async () => {
+    if (!textInput.trim()) return;
+    
+    setIsProcessing(true);
+    
+    try {
+      setTranscript(prev => prev + textInput + '\n\n');
+      setTextInput('');
+      alert('テキストが追加されました！');
+      
+    } catch (error) {
+      console.error('テキスト処理エラー:', error);
+      alert('テキスト処理中にエラーが発生しました: ' + error.message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const generateInsights = async () => {
@@ -492,12 +710,17 @@ function App() {
           name: cat.name,
           items: cat.items.map(item => item.text)
         })),
-        transcript: transcript
+        transcript: transcript,
+        photos: photos.map(photo => ({
+          category: photo.category,
+          description: photo.description,
+          timestamp: photo.timestamp
+        }))
       };
 
       console.log('インサイト生成データ:', insightData);
 
-      const response = await fetch('https://store-visit-7cux.onrender.com/api/generate-insights', {
+      const response = await fetch(`${API_BASE_URL}/api/generate-insights`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -538,10 +761,15 @@ function App() {
           name: cat.name,
           items: cat.items.map(item => item.text)
         })),
-        transcript: transcript
+        transcript: transcript,
+        photos: photos.map(photo => ({
+          category: photo.category,
+          description: photo.description,
+          timestamp: photo.timestamp
+        }))
       };
 
-      const response = await fetch('https://store-visit-7cux.onrender.com/api/ask-question', {
+      const response = await fetch(`${API_BASE_URL}/api/ask-question`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -571,54 +799,33 @@ function App() {
     }
   };
 
-  const processTextInput = async () => {
-    if (!textInput.trim()) return;
-    
-    setIsProcessing(true);
-    
-    try {
-      setTranscript(prev => prev + textInput + '\n\n');
-      setTextInput('');
-      alert('テキストが追加されました！');
-      
-    } catch (error) {
-      console.error('テキスト処理エラー:', error);
-      alert('テキスト処理中にエラーが発生しました: ' + error.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const exportToExcel = () => {
     try {
-      // より互換性の高いCSV形式での出力に変更
-      let csvContent = '\uFEFF'; // BOM（UTF-8識別用）
+      let csvContent = '\uFEFF';
       
-      // ヘッダー
       csvContent += '店舗視察レポート\n';
       csvContent += `店舗名,${storeName || '未設定'}\n`;
       csvContent += `作成日時,${new Date().toLocaleString('ja-JP')}\n`;
+      csvContent += `写真枚数,${photos.length}\n`;
       csvContent += '\n';
 
-      // カテゴリ別データ
       categories.forEach(category => {
         if (category.items.length > 0) {
           csvContent += `${category.name}\n`;
-          csvContent += 'コメント,信頼度,記録時刻\n';
+          csvContent += 'コメント,信頼度,記録時刻,写真\n';
           
           category.items.forEach(item => {
-            // CSV用にデータをエスケープ
             const escapedText = `"${item.text.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
             const confidence = `${Math.round(item.confidence * 100)}%`;
             const timestamp = item.timestamp;
+            const hasPhoto = item.isPhoto ? '有' : '無';
             
-            csvContent += `${escapedText},${confidence},${timestamp}\n`;
+            csvContent += `${escapedText},${confidence},${timestamp},${hasPhoto}\n`;
           });
           csvContent += '\n';
         }
       });
 
-      // 音声ログ
       if (transcript.trim()) {
         csvContent += '音声ログ\n';
         const escapedTranscript = `"${transcript.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
@@ -626,14 +833,12 @@ function App() {
         csvContent += '\n';
       }
 
-      // AI分析結果
       if (insights.trim()) {
         csvContent += 'AI分析結果\n';
         const escapedInsights = `"${insights.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
         csvContent += `${escapedInsights}\n`;
       }
 
-      // 質問応答履歴
       if (qaPairs.length > 0) {
         csvContent += '\n質問応答履歴\n';
         csvContent += '質問,回答,記録時刻\n';
@@ -645,7 +850,16 @@ function App() {
         });
       }
 
-      // Excel互換のCSVファイルとしてダウンロード
+      if (photos.length > 0) {
+        csvContent += '\n写真一覧\n';
+        csvContent += '撮影日時,カテゴリ,説明,信頼度\n';
+        
+        photos.forEach(photo => {
+          const escapedDesc = `"${photo.description.replace(/"/g, '""')}"`;
+          csvContent += `${photo.timestamp},${photo.category},${escapedDesc},${Math.round(photo.confidence * 100)}%\n`;
+        });
+      }
+
       const blob = new Blob([csvContent], { 
         type: 'text/csv;charset=utf-8' 
       });
@@ -654,7 +868,6 @@ function App() {
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
       
-      // ファイル名を.csvに変更（Excelで正しく開ける）
       const fileName = `店舗視察_${storeName || '未設定'}_${new Date().toISOString().slice(0, 10)}.csv`;
       link.setAttribute('download', fileName);
       link.style.visibility = 'hidden';
@@ -663,7 +876,6 @@ function App() {
       link.click();
       document.body.removeChild(link);
       
-      // メモリ解放
       URL.revokeObjectURL(url);
 
       console.log('CSVエクスポート完了:', fileName);
@@ -672,6 +884,26 @@ function App() {
     } catch (error) {
       console.error('エクスポートエラー:', error);
       alert('エクスポート中にエラーが発生しました');
+    }
+  };
+
+  const handlePhotoAdded = (photoData) => {
+    setPhotos(prev => [...prev, photoData]);
+  };
+
+  // 分類結果を処理する関数を更新
+  const processClassificationResult = (result) => {
+    if (result.csv_format) {
+      const newCategories = convertCsvToCategories(result.csv_format);
+      setCategories(prevCategories => 
+        prevCategories.map(cat => {
+          const newCat = newCategories.find(nc => nc.name === cat.name);
+          return {
+            ...cat,
+            items: newCat ? [...cat.items, ...newCat.items] : cat.items
+          };
+        })
+      );
     }
   };
 
@@ -684,7 +916,7 @@ function App() {
             🏪 店舗視察AI
           </h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
-            音声録音で効率的な店舗視察を実現。AIが自動で音声を認識・分類し、ビジネスインサイトを生成します。
+            音声録音と写真撮影で効率的な店舗視察を実現。AIが自動で音声・写真を認識・分類し、ビジネスインサイトを生成します。
           </p>
         </div>
 
@@ -715,21 +947,16 @@ function App() {
           </p>
         </div>
 
+        {/* 写真撮影機能 */}
+        <PhotoCapture 
+          onPhotoAdded={handlePhotoAdded}
+          categories={categories}
+          setCategories={setCategories}
+          isProcessing={isProcessing}
+        />
+
         {/* コントロールボタン */}
         <div className="grid grid-cols-2 gap-3 mb-6">
-          {/* 音声ファイルアップロード */}
-          <label className="flex items-center justify-center gap-2 px-4 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md min-h-[52px]">
-            <Upload size={20} />
-            <span className="text-sm font-medium">音声ファイル</span>
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={handleFileUpload}
-              className="hidden"
-              disabled={isProcessing || isWebSpeechRecording}
-            />
-          </label>
-          
           {/* テキスト入力 */}
           <button
             onClick={() => setShowTextInput(!showTextInput)}
@@ -778,7 +1005,7 @@ function App() {
               }
             }}
             disabled={isWebSpeechRecording || isProcessing || !transcript}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm hover:shadow-md min-h-[52px] disabled:opacity-50 col-span-2"
+            className="flex items-center justify-center gap-2 px-4 py-4 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm hover:shadow-md min-h-[52px] disabled:opacity-50"
           >
             <ListTree size={20} />
             <span className="text-sm font-medium">
@@ -802,17 +1029,9 @@ function App() {
               {isWebSpeechRecording ? <MicOff size={24} /> : <Mic size={24} />}
             </button>
           ) : (
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isProcessing}
-              className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
-                isRecording 
-                  ? 'bg-red-500 hover:bg-red-600 animate-pulse' 
-                  : 'bg-gray-500 hover:bg-gray-600 hover:scale-110'
-              } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} text-white`}
-            >
-              {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
-            </button>
+            <div className="w-16 h-16 rounded-full shadow-lg flex items-center justify-center bg-gray-400 text-white">
+              <HelpCircle size={24} />
+            </div>
           )}
         </div>
 
@@ -907,6 +1126,17 @@ function App() {
           </div>
         </div>
 
+        {/* 分類結果の表示を更新 */}
+        <div className="mt-8">
+          {categories.map(category => (
+            <ClassificationTable
+              key={category.name}
+              category={category.name}
+              items={category.items}
+            />
+          ))}
+        </div>
+
         {/* カテゴリ別結果表示 */}
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
@@ -927,7 +1157,7 @@ function App() {
                 <div className="space-y-2">
                   {category.items.length > 0 ? (
                     category.items.map((item, itemIndex) => (
-                      <div key={itemIndex} className="bg-gray-50 rounded-lg p-3 border-l-4 border-blue-400">
+                      <div key={itemIndex} className={`rounded-lg p-3 border-l-4 ${item.isPhoto ? 'bg-blue-50 border-blue-400' : 'bg-gray-50 border-blue-400'}`}>
                         <p className="text-gray-700 leading-relaxed text-sm">{item.text}</p>
                         <div className="mt-2 flex justify-between items-center text-xs text-gray-500">
                           <span>信頼度: {Math.round(item.confidence * 100)}%</span>
@@ -950,7 +1180,7 @@ function App() {
         </div>
 
         {/* AIインサイト生成 */}
-        {(categories.some(cat => cat.items.length > 0) || transcript) && (
+        {(categories.some(cat => cat.items.length > 0) || transcript || photos.length > 0) && (
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
@@ -982,7 +1212,7 @@ function App() {
         )}
 
         {/* Q&A セクション */}
-        {(categories.some(cat => cat.items.length > 0) || transcript) && (
+        {(categories.some(cat => cat.items.length > 0) || transcript || photos.length > 0) && (
           <div className="mb-8">
             <h2 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
               ❓ 質問応答
@@ -1028,5 +1258,3 @@ function App() {
     </div>
   );
 }
-
-export default App;
