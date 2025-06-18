@@ -48,6 +48,7 @@ const StoreInspectionApp = () => {
   const [showAiFeatures, setShowAiFeatures] = useState(false);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInput, setTextInput] = useState('');
+  const [useMockApi, setUseMockApi] = useState(false);
   
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -185,7 +186,9 @@ const StoreInspectionApp = () => {
       console.log('APIエンドポイント:', useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint);
       console.log('送信するカテゴリ数:', categories.length);
 
-      const response = await fetch(useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint, {
+      const finalEndpoint = useMockApi ? apiEndpoint.replace('/transcribe', '/transcribe-mock') : apiEndpoint;
+      
+      const response = await fetch(finalEndpoint, {
         method: 'POST',
         body: formData
       });
@@ -482,6 +485,71 @@ const StoreInspectionApp = () => {
       alert(`質問処理中にエラーが発生しました: ${error.message}`);
     } finally {
       setIsAnswering(false);
+    }
+  };
+
+  // テキスト入力処理関数
+  const processTextInput = async () => {
+    if (!textInput.trim()) return;
+    
+    setIsProcessing(true);
+    
+    try {
+      // テキストを音声ログに追加
+      setTranscript(prev => prev + textInput + '\n\n');
+      
+      // 簡単なキーワードマッチングでカテゴリ分類
+      const newItems = [];
+      categories.forEach(category => {
+        const keywords = category.name.includes('価格') ? ['円', '価格', '値段', '安い', '高い'] :
+                        category.name.includes('売り場') ? ['売り場', 'レイアウト', '陳列', '棚'] :
+                        category.name.includes('客層') ? ['客', 'お客', '混雑', '空い'] :
+                        category.name.includes('商品') ? ['商品', '品揃え', '欠品'] :
+                        category.name.includes('店舗') ? ['店舗', '立地', '駐車場', '清潔'] : [];
+        
+        keywords.forEach(keyword => {
+          if (textInput.includes(keyword)) {
+            newItems.push({
+              category: category.name,
+              text: textInput,
+              confidence: 0.8
+            });
+          }
+        });
+      });
+      
+      // カテゴリに分類
+      if (newItems.length > 0) {
+        setCategories(prevCategories => {
+          const updatedCategories = [...prevCategories];
+          
+          newItems.forEach(item => {
+            const categoryIndex = updatedCategories.findIndex(
+              cat => cat.name === item.category
+            );
+            
+            if (categoryIndex !== -1) {
+              updatedCategories[categoryIndex].items.push({
+                text: item.text,
+                confidence: item.confidence,
+                timestamp: new Date().toLocaleTimeString()
+              });
+            }
+          });
+          
+          return updatedCategories;
+        });
+      }
+      
+      // 入力をクリア
+      setTextInput('');
+      alert('テキストが正常に処理されました！');
+      
+    } catch (error) {
+      console.error('テキスト処理エラー:', error);
+      alert('テキスト処理中にエラーが発生しました');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
