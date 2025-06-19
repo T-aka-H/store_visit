@@ -76,7 +76,8 @@ const PhotoCapture = ({
   isProcessing, 
   storeName,
   photos,
-  setPhotos
+  setPhotos,
+  downloadPhoto // propsとして受け取る
 }) => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
 
@@ -90,53 +91,6 @@ const PhotoCapture = ({
         items: category.items.filter(item => item.photoId !== photoId)
       }));
     });
-  };
-
-  // downloadPhoto関数
-  const downloadPhoto = async (photo) => {
-    try {
-      const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
-      const response = await fetch(`${API_BASE_URL}/api/photos/${photo.id}/download`, {
-        method: 'GET',
-      });
-      
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `store_visit_photo_${photo.id}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        return;
-      }
-    } catch (error) {
-      console.log('バックエンドAPI利用不可、フォールバックを使用:', error);
-    }
-    
-    // フォールバック: Base64画像を直接ダウンロード
-    try {
-      const link = document.createElement('a');
-      link.href = photo.base64;
-      
-      const timestamp = new Date(photo.timestamp || Date.now())
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[T:]/g, '-');
-      const category = photo.category ? `_${photo.category}` : '';
-      link.download = `store_photo_${timestamp}${category}.jpg`;
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-    } catch (fallbackError) {
-      console.error('フォールバックダウンロードエラー:', fallbackError);
-      alert('写真のダウンロードに失敗しました');
-    }
   };
 
   return (
@@ -984,6 +938,53 @@ function App() {
     }
   };
 
+  // 個別写真ダウンロード関数
+  const downloadPhoto = async (photo) => {
+    try {
+      const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
+      const response = await fetch(`${API_BASE_URL}/api/photos/${photo.id}/download`, {
+        method: 'GET',
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `store_visit_photo_${photo.id}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        return;
+      }
+    } catch (error) {
+      console.log('バックエンドAPI利用不可、フォールバックを使用:', error);
+    }
+    
+    // フォールバック: Base64画像を直接ダウンロード
+    try {
+      const link = document.createElement('a');
+      link.href = photo.base64;
+      
+      const timestamp = new Date(photo.timestamp || Date.now())
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[T:]/g, '-');
+      const category = photo.category ? `_${photo.category}` : '';
+      link.download = `store_photo_${timestamp}${category}.jpg`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (fallbackError) {
+      console.error('フォールバックダウンロードエラー:', fallbackError);
+      alert('写真のダウンロードに失敗しました');
+    }
+  };
+
   // downloadAllPhotos関数（写真のみ、JSONファイルなし）
   const downloadAllPhotos = async () => {
     if (photos.length === 0) {
@@ -1282,6 +1283,7 @@ function App() {
           storeName={storeName}
           photos={photos}
           setPhotos={setPhotos}
+          downloadPhoto={downloadPhoto}
         />
 
         {/* コントロールボタン - 上部（安全な機能のみ） */}
