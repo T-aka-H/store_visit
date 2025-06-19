@@ -174,7 +174,8 @@ const PhotoCapture = ({
   storeName, 
   photos, 
   setPhotos, 
-  downloadPhoto 
+  downloadPhoto,
+  downloadAllPhotos  // 追加: downloadAllPhotosをpropsとして受け取る
 }) => {
   return (
     <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -256,7 +257,6 @@ const PhotoCapture = ({
                   </div>
                 </div>
                 
-                {/* 写真の詳細情報 */}
                 <div className="mt-1 text-xs">
                   <div className="text-gray-500 text-center truncate font-medium">
                     {photo.category || '未分類'}
@@ -288,11 +288,7 @@ const PhotoCapture = ({
           {/* 写真関連の操作ボタン */}
           <div className="flex gap-2 justify-center">
             <button
-              onClick={() => {
-                if (typeof downloadAllPhotos === 'function') {
-                  downloadAllPhotos();
-                }
-              }}
+              onClick={downloadAllPhotos}
               disabled={isProcessing}
               className="flex items-center gap-1 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 text-sm"
             >
@@ -1287,6 +1283,7 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
           photos={photos}
           setPhotos={setPhotos}
           downloadPhoto={downloadPhoto}
+          downloadAllPhotos={downloadAllPhotos}  // 追加: downloadAllPhotosを渡す
         />
 
         {/* コントロールボタン - 上部（安全な機能のみ） */}
