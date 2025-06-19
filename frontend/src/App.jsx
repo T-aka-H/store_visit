@@ -139,74 +139,6 @@ const PhotoCapture = ({
     }
   };
 
-  // downloadAllPhotos関数（写真のみ、JSONファイルなし）
-  const downloadAllPhotos = async () => {
-    if (photos.length === 0) {
-      alert('ダウンロード可能な写真がありません');
-      return;
-    }
-
-    try {
-      // JSZipの安全な使用
-      if (typeof JSZip !== 'undefined') {
-        const zip = new JSZip();
-        
-        // 写真のみZIPに追加
-        photos.forEach((photo, index) => {
-          try {
-            const base64Data = photo.base64.split(',')[1];
-            
-            const timestamp = new Date(photo.timestamp || Date.now())
-              .toISOString()
-              .slice(0, 19)
-              .replace(/[T:]/g, '-');
-            const category = photo.category ? `_${photo.category}` : '';
-            const fileName = `photo_${String(index + 1).padStart(3, '0')}_${timestamp}${category}.jpg`;
-            
-            zip.file(fileName, base64Data, {base64: true});
-            
-          } catch (error) {
-            console.error(`写真 ${index + 1} の処理エラー:`, error);
-          }
-        });
-        
-        const zipBlob = await zip.generateAsync({
-          type: 'blob',
-          compression: "DEFLATE",
-          compressionOptions: { level: 6 }
-        });
-        
-        const url = window.URL.createObjectURL(zipBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        
-        const exportDate = new Date().toISOString().slice(0, 10);
-        const storeNameSafe = (storeName || 'unknown').replace(/[^a-zA-Z0-9\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '_');
-        link.download = `store_photos_${storeNameSafe}_${exportDate}.zip`;
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        
-        alert(`${photos.length}枚の写真をZIPファイルでダウンロードしました！`);
-        
-      } else {
-        // JSZipが利用できない場合は個別ダウンロード
-        photos.forEach((photo, index) => {
-          setTimeout(() => {
-            downloadPhoto(photo);
-          }, index * 500);
-        });
-        
-        alert('JSZipが利用できないため、写真を個別にダウンロードします');
-      }
-    } catch (error) {
-      console.error('一括ダウンロードエラー:', error);
-      alert('写真の一括ダウンロードに失敗しました: ' + error.message);
-    }
-  };
-
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
       {/* ヘッダー */}
@@ -219,19 +151,7 @@ const PhotoCapture = ({
             </span>
           )}
         </h2>
-        <div className="flex gap-2">
-          {photos.length > 0 && (
-            <button
-              onClick={downloadAllPhotos}
-              disabled={isProcessing}
-              className="flex items-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 shadow-sm transition-all duration-200 text-sm font-medium active:bg-green-600"
-              title={`${photos.length}枚の写真をZIPでダウンロード`}
-            >
-              <Download size={16} />
-              <span>全保存</span>
-            </button>
-          )}
-        </div>
+        {/* 全保存ボタンを削除 - 最下部に移動済み */}
       </div>
 
       {/* 撮影ヒント */}
@@ -578,6 +498,7 @@ function App() {
   const [isWebSpeechRecording, setIsWebSpeechRecording] = useState(false);
   const recognitionRef = useRef(null);
   const [textInput, setTextInput] = useState('');
+  const [uploadedAudio, setUploadedAudio] = useState(null);
   
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -757,6 +678,91 @@ function App() {
     return null;
   };
 
+  // 音声ファイルアップロード処理
+  const handleAudioUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // ファイルサイズチェック（50MB制限）
+      if (file.size > 50 * 1024 * 1024) {
+        alert('ファイルサイズが大きすぎます。50MB以下の音声ファイルを選択してください。');
+        return;
+      }
+
+      // 音声ファイル形式チェック
+      const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/m4a', 'audio/webm', 'audio/ogg'];
+      if (!allowedTypes.includes(file.type)) {
+        alert('対応していない音声形式です。MP3、WAV、M4A等の音声ファイルを選択してください。');
+        return;
+      }
+
+      setUploadedAudio(file);
+      console.log('音声ファイルアップロード:', file.name, file.type, (file.size / 1024 / 1024).toFixed(1) + 'MB');
+    }
+  };
+
+  // アップロードされた音声の処理
+  const processUploadedAudio = async () => {
+    if (!uploadedAudio) return;
+
+    setIsProcessing(true);
+    
+    try {
+      console.log('=== 音声ファイル処理開始 ===');
+      
+      // FormDataを作成して音声ファイルを送信
+      const formData = new FormData();
+      formData.append('audio', uploadedAudio);
+      formData.append('language', 'ja-JP'); // 日本語指定
+
+      const response = await fetch(`${API_BASE_URL}/api/transcribe-audio`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || '音声ファイルの処理に失敗しました');
+      }
+
+      const result = await response.json();
+      console.log('音声文字起こし結果:', result);
+
+      if (result.transcript) {
+        // 音声認識結果を追加
+        setTranscript(prev => {
+          const newContent = `[アップロード音声: ${uploadedAudio.name}]\n${result.transcript}`;
+          return prev ? `${prev}\n\n${newContent}` : newContent;
+        });
+
+        // 自動分類を実行
+        if (result.transcript.trim()) {
+          console.log('自動分類開始...');
+          await performAIClassification(result.transcript, categories, setCategories);
+        }
+
+        // 店舗名の自動抽出も試行
+        if (!storeName) {
+          const extractedStoreName = extractStoreName(result.transcript);
+          if (extractedStoreName) {
+            console.log('店舗名を自動抽出:', extractedStoreName);
+            setStoreName(extractedStoreName);
+          }
+        }
+
+        alert('音声ファイルの文字起こしが完了しました！');
+      } else {
+        alert('音声から文字起こしできませんでした。音声が明瞭でない可能性があります。');
+      }
+
+    } catch (error) {
+      console.error('音声処理エラー:', error);
+      alert(`音声ファイルの処理中にエラーが発生しました: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
+      setUploadedAudio(null); // 処理完了後にクリア
+    }
+  };
+
   const clearData = () => {
     setTranscript('');
     setCategories(categories.map(cat => ({ ...cat, items: [] })));
@@ -765,6 +771,7 @@ function App() {
     setQuestionInput('');
     setTextInput('');
     setPhotos([]);
+    setUploadedAudio(null);
   };
 
   const processTextInput = async () => {
@@ -974,6 +981,74 @@ function App() {
     } catch (error) {
       console.error('エクスポートエラー:', error);
       alert('エクスポート中にエラーが発生しました');
+    }
+  };
+
+  // downloadAllPhotos関数（写真のみ、JSONファイルなし）
+  const downloadAllPhotos = async () => {
+    if (photos.length === 0) {
+      alert('ダウンロード可能な写真がありません');
+      return;
+    }
+
+    try {
+      // JSZipの安全な使用
+      if (typeof JSZip !== 'undefined') {
+        const zip = new JSZip();
+        
+        // 写真のみZIPに追加
+        photos.forEach((photo, index) => {
+          try {
+            const base64Data = photo.base64.split(',')[1];
+            
+            const timestamp = new Date(photo.timestamp || Date.now())
+              .toISOString()
+              .slice(0, 19)
+              .replace(/[T:]/g, '-');
+            const category = photo.category ? `_${photo.category}` : '';
+            const fileName = `photo_${String(index + 1).padStart(3, '0')}_${timestamp}${category}.jpg`;
+            
+            zip.file(fileName, base64Data, {base64: true});
+            
+          } catch (error) {
+            console.error(`写真 ${index + 1} の処理エラー:`, error);
+          }
+        });
+        
+        const zipBlob = await zip.generateAsync({
+          type: 'blob',
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 }
+        });
+        
+        const url = window.URL.createObjectURL(zipBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        const exportDate = new Date().toISOString().slice(0, 10);
+        const storeNameSafe = (storeName || 'unknown').replace(/[^a-zA-Z0-9\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '_');
+        link.download = `store_photos_${storeNameSafe}_${exportDate}.zip`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+        alert(`${photos.length}枚の写真をZIPファイルでダウンロードしました！`);
+        
+      } else {
+        // JSZipが利用できない場合は個別ダウンロード
+        photos.forEach((photo, index) => {
+          setTimeout(() => {
+            downloadPhoto(photo);
+          }, index * 500);
+        });
+        
+        alert('JSZipが利用できないため、写真を個別にダウンロードします');
+      }
+    } catch (error) {
+      console.error('一括ダウンロードエラー:', error);
+      alert('写真の一括ダウンロードに失敗しました: ' + error.message);
     }
   };
 
@@ -1209,7 +1284,7 @@ function App() {
           setPhotos={setPhotos}
         />
 
-        {/* コントロールボタン */}
+        {/* コントロールボタン - 上部（安全な機能のみ） */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           {/* テキスト入力 */}
           <button
@@ -1219,26 +1294,6 @@ function App() {
           >
             <MessageCircle size={20} />
             <span className="text-sm font-medium">テキスト入力</span>
-          </button>
-          
-          {/* データクリア */}
-          <button
-            onClick={clearData}
-            disabled={isProcessing || isWebSpeechRecording}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 shadow-sm hover:shadow-md min-h-[52px]"
-          >
-            <Trash2 size={20} />
-            <span className="text-sm font-medium">データクリア</span>
-          </button>
-
-          {/* Excel出力 */}
-          <button
-            onClick={exportToExcel}
-            disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md min-h-[52px]"
-          >
-            <Download size={20} />
-            <span className="text-sm font-medium">Excel出力</span>
           </button>
 
           {/* 音声認識結果を分類 */}
@@ -1266,6 +1321,50 @@ function App() {
               {isProcessing ? '分類中...' : '音声認識結果を分類'}
             </span>
           </button>
+        </div>
+
+        {/* 音声アップロードセクション */}
+        <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+          <h3 className="text-base font-medium text-gray-700 mb-3 flex items-center gap-2">
+            🎵 音声ファイルアップロード
+          </h3>
+          <div className="flex items-center gap-3">
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={handleAudioUpload}
+              disabled={isProcessing || isWebSpeechRecording}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            />
+            <div className="text-xs text-gray-500">
+              MP3、WAV、M4A等の音声ファイルに対応
+            </div>
+          </div>
+          {uploadedAudio && (
+            <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
+              <div className="flex items-center gap-2">
+                <span className="text-green-600">✓</span>
+                <span className="text-green-700 text-sm font-medium">
+                  音声ファイルがアップロードされました: {uploadedAudio.name}
+                </span>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={processUploadedAudio}
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 transition-all duration-200 text-sm"
+                >
+                  {isProcessing ? '処理中...' : '音声を文字起こし'}
+                </button>
+                <button
+                  onClick={() => setUploadedAudio(null)}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all duration-200 text-sm"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 浮遊録音ボタン */}
@@ -1477,6 +1576,58 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* 最下部のボタンセクション（重要な操作） */}
+        <div className="mt-12 pt-6 border-t border-gray-200">
+          <div className="bg-yellow-50 rounded-lg p-4 mb-4 border border-yellow-200">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-yellow-600">⚠️</span>
+              <span className="font-medium text-yellow-800">注意</span>
+            </div>
+            <p className="text-yellow-700 text-sm">
+              以下のボタンは重要な操作です。データの保存やクリアを行う前に、必要な情報が含まれているか確認してください。
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* 写真全保存 */}
+            {photos.length > 0 && (
+              <button
+                onClick={downloadAllPhotos}
+                disabled={isProcessing}
+                className="flex items-center justify-center gap-2 px-6 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md min-h-[56px] font-medium"
+                title={`${photos.length}枚の写真をZIPでダウンロード`}
+              >
+                <Download size={20} />
+                <span>📸 写真を全保存</span>
+              </button>
+            )}
+
+            {/* Excel出力 */}
+            <button
+              onClick={exportToExcel}
+              disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
+              className="flex items-center justify-center gap-2 px-6 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md min-h-[56px] font-medium"
+            >
+              <Download size={20} />
+              <span>📊 視察レポートをExcel出力</span>
+            </button>
+
+            {/* データクリア */}
+            <button
+              onClick={() => {
+                if (window.confirm('本当にすべてのデータをクリアしますか？この操作は元に戻せません。')) {
+                  clearData();
+                }
+              }}
+              disabled={isProcessing || isWebSpeechRecording}
+              className="flex items-center justify-center gap-2 px-6 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 shadow-sm hover:shadow-md min-h-[56px] font-medium"
+            >
+              <Trash2 size={20} />
+              <span>🗑️ すべてのデータをクリア</span>
+            </button>
+          </div>
+        </div>
 
         {/* フッター */}
         <div className="text-center text-gray-500 pt-6 border-t border-gray-200">
