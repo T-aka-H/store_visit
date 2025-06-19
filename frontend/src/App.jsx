@@ -275,7 +275,7 @@ const PhotoCapture = ({
   photos, 
   setPhotos, 
   downloadPhoto,
-  downloadAllPhotos  // 追加: downloadAllPhotosをpropsとして受け取る
+  downloadAllPhotos
 }) => {
   return (
     <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -460,7 +460,18 @@ const fetchDebugInfo = async () => {
   }
 };
 
-// 画像リサイズ関数（新規追加）
+// JSZipの動的ロード関数
+const loadJSZip = async () => {
+  try {
+    const JSZip = await import('jszip');
+    return JSZip.default || JSZip;
+  } catch (error) {
+    console.error('JSZipの読み込みに失敗:', error);
+    return null;
+  }
+};
+
+// 画像リサイズ関数
 const resizeAndConvertImage = (file, maxWidth = 800, maxHeight = 600) => {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
@@ -495,211 +506,14 @@ const resizeAndConvertImage = (file, maxWidth = 800, maxHeight = 600) => {
   });
 };
 
-// 高速化された写真解析関数
-const analyzePhotoWithGemini = async (base64Image) => {
-  console.log('🚀 高速写真解析開始');
-  const startTime = Date.now();
-  
-  try {
-    // タイムアウト設定（10秒）
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    
-    const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ 
-        image: base64Image,
-        fast_mode: true // 高速モードを指定
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    const processingTime = Date.now() - startTime;
-    
-    console.log(`✅ 写真解析完了 (${processingTime}ms)`);
-    return result;
-    
-  } catch (error) {
-    const processingTime = Date.now() - startTime;
-    console.error(`❌ 写真解析エラー (${processingTime}ms):`, error);
-    
-    if (error.name === 'AbortError') {
-      throw new Error('写真解析がタイムアウトしました（10秒以内に完了しませんでした）');
-    }
-    throw error;
-  }
-};
-
-// 分類結果をカテゴリに追加する関数
-const addClassificationsToCategories = (classifications) => {
-  setCategories(prevCategories => 
-    prevCategories.map(cat => {
-      const newItems = classifications
-        .filter(c => c.category === cat.name)
-        .map(c => ({
-          id: Date.now() + Math.random(),
-          text: c.text,
-          confidence: c.confidence || 0.8,
-          reason: c.reason || '写真解析による分類',
-          timestamp: new Date().toLocaleTimeString(),
-          isPhoto: true
-        }));
-      
-      return {
-        ...cat,
-        items: [...cat.items, ...newItems]
-      };
-    })
-  );
-};
-
-// 簡略化された写真撮影関数
-const capturePhoto = async () => {
-  if (isAnalyzing || isProcessing) return;
-  
-  try {
-    setIsAnalyzing(true);
-    console.log('📷 写真撮影開始');
-    
-    // ファイル選択
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.capture = 'environment';
-    
-    const file = await new Promise((resolve) => {
-      input.onchange = (event) => {
-        const files = event.target.files;
-        resolve(files && files.length > 0 ? files[0] : null);
-      };
-      input.click();
-    });
-
-    if (!file) return;
-
-    // 軽量化：リサイズしてからBase64変換
-    const resizedBase64 = await resizeAndConvertImage(file, 800, 600); // 最大800x600に制限
-    
-    // AI解析（高速モード）
-    const analysis = await analyzePhotoWithGemini(resizedBase64);
-    
-    if (!analysis.success) {
-      throw new Error('写真解析に失敗しました');
-    }
-
-    // 写真データの簡略化
-    const photoData = {
-      id: analysis.id,
-      base64: analysis.processedImage.data, // リサイズ済み画像
-      timestamp: new Date().toLocaleString('ja-JP'),
-      category: analysis.classifications[0]?.category || '店舗環境',
-      description: analysis.classifications[0]?.text || '写真が追加されました',
-      confidence: analysis.classifications[0]?.confidence || 0.7
-    };
-
-    // 状態更新
-    setPhotos(prev => [...prev, photoData]);
-    
-    // カテゴリに自動追加
-    if (analysis.classifications.length > 0) {
-      addClassificationsToCategories(analysis.classifications);
-    }
-
-    alert(`📸 写真解析完了！\n${analysis.classifications.length}件の情報を検出`);
-
-  } catch (error) {
-    console.error('写真撮影エラー:', error);
-    alert(`写真の処理に失敗しました: ${error.message}`);
-  } finally {
-    setIsAnalyzing(false);
-  }
-};
-
-// 簡略化された写真ダウンロード関数
-const downloadPhoto = (photo) => {
-  try {
-    const link = document.createElement('a');
-    link.href = photo.base64;
-    
-    const timestamp = new Date().toISOString().slice(0, 10);
-    const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
-    link.download = `${timestamp}_${category}_${photo.id}.jpg`;
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-  } catch (error) {
-    console.error('写真ダウンロードエラー:', error);
-    alert('写真のダウンロードに失敗しました');
-  }
-};
-
-// 高速化された一括ダウンロード関数
-const downloadAllPhotos = async () => {
-  if (photos.length === 0) {
-    alert('ダウンロードする写真がありません');
-    return;
-  }
-
-  try {
-    // JSZipの動的ロード
-    const JSZip = await loadJSZip();
-    
-    if (JSZip) {
-      const zip = new JSZip();
-      
-      photos.forEach((photo, index) => {
-        const base64Data = photo.base64.split(',')[1];
-        const timestamp = new Date().toISOString().slice(0, 10);
-        const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
-        const fileName = `${timestamp}_${category}_${index + 1}.jpg`;
-        
-        zip.file(fileName, base64Data, {base64: true});
-      });
-      
-      const zipBlob = await zip.generateAsync({
-        type: 'blob',
-        compression: "DEFLATE",
-        compressionOptions: { level: 6 }
-      });
-      
-      const url = window.URL.createObjectURL(zipBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      
-      const exportDate = new Date().toISOString().slice(0, 10);
-      const storeNameSafe = (storeName || 'store').replace(/[^a-zA-Z0-9]/g, '_');
-      link.download = `${exportDate}_${storeNameSafe}_photos.zip`;
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      alert(`${photos.length}枚の写真をZIPでダウンロードしました！`);
-      
-    } else {
-      // フォールバック：個別ダウンロード
-      photos.forEach((photo, index) => {
-        setTimeout(() => downloadPhoto(photo), index * 500);
-      });
-      alert('JSZipが利用できないため、写真を個別にダウンロードします');
-    }
-  } catch (error) {
-    console.error('一括ダウンロードエラー:', error);
-    alert('写真の一括ダウンロードに失敗しました');
-  }
+// Base64変換ユーティリティ
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (error) => reject(error);
+  });
 };
 
 // メインアプリコンポーネント
@@ -733,6 +547,213 @@ function App() {
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
+
+  // 高速化された写真解析関数
+  const analyzePhotoWithGemini = async (base64Image) => {
+    console.log('🚀 高速写真解析開始');
+    const startTime = Date.now();
+    
+    try {
+      // タイムアウト設定（10秒）
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          image: base64Image,
+          fast_mode: true // 高速モードを指定
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const processingTime = Date.now() - startTime;
+      
+      console.log(`✅ 写真解析完了 (${processingTime}ms)`);
+      return result;
+      
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      console.error(`❌ 写真解析エラー (${processingTime}ms):`, error);
+      
+      if (error.name === 'AbortError') {
+        throw new Error('写真解析がタイムアウトしました（10秒以内に完了しませんでした）');
+      }
+      throw error;
+    }
+  };
+
+  // 分類結果をカテゴリに追加する関数
+  const addClassificationsToCategories = (classifications) => {
+    setCategories(prevCategories => 
+      prevCategories.map(cat => {
+        const newItems = classifications
+          .filter(c => c.category === cat.name)
+          .map(c => ({
+            id: Date.now() + Math.random(),
+            text: c.text,
+            confidence: c.confidence || 0.8,
+            reason: c.reason || '写真解析による分類',
+            timestamp: new Date().toLocaleTimeString(),
+            isPhoto: true
+          }));
+        
+        return {
+          ...cat,
+          items: [...cat.items, ...newItems]
+        };
+      })
+    );
+  };
+
+  // 写真撮影とAI解析
+  const capturePhoto = async () => {
+    if (isAnalyzing || isProcessing) return;
+    
+    try {
+      setIsAnalyzing(true);
+      console.log('📷 写真撮影開始');
+      
+      // ファイル選択
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.capture = 'environment';
+      
+      const file = await new Promise((resolve) => {
+        input.onchange = (event) => {
+          const files = event.target.files;
+          resolve(files && files.length > 0 ? files[0] : null);
+        };
+        input.click();
+      });
+
+      if (!file) return;
+
+      // 軽量化：リサイズしてからBase64変換
+      const resizedBase64 = await resizeAndConvertImage(file, 800, 600); // 最大800x600に制限
+      
+      // AI解析（高速モード）
+      const analysis = await analyzePhotoWithGemini(resizedBase64);
+      
+      if (!analysis.success) {
+        throw new Error('写真解析に失敗しました');
+      }
+
+      // 写真データの簡略化
+      const photoData = {
+        id: analysis.id,
+        base64: analysis.processedImage.data, // リサイズ済み画像
+        timestamp: new Date().toLocaleString('ja-JP'),
+        category: analysis.classifications[0]?.category || '店舗環境',
+        description: analysis.classifications[0]?.text || '写真が追加されました',
+        confidence: analysis.classifications[0]?.confidence || 0.7
+      };
+
+      // 状態更新
+      setPhotos(prev => [...prev, photoData]);
+      
+      // カテゴリに自動追加
+      if (analysis.classifications.length > 0) {
+        addClassificationsToCategories(analysis.classifications);
+      }
+
+      alert(`📸 写真解析完了！\n${analysis.classifications.length}件の情報を検出`);
+
+    } catch (error) {
+      console.error('写真撮影エラー:', error);
+      alert(`写真の処理に失敗しました: ${error.message}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // 簡略化された写真ダウンロード関数
+  const downloadPhoto = (photo) => {
+    try {
+      const link = document.createElement('a');
+      link.href = photo.base64;
+      
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
+      link.download = `${timestamp}_${category}_${photo.id}.jpg`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (error) {
+      console.error('写真ダウンロードエラー:', error);
+      alert('写真のダウンロードに失敗しました');
+    }
+  };
+
+  // 高速化された一括ダウンロード関数
+  const downloadAllPhotos = async () => {
+    if (photos.length === 0) {
+      alert('ダウンロードする写真がありません');
+      return;
+    }
+
+    try {
+      // JSZipの動的ロード
+      const JSZip = await loadJSZip();
+      
+      if (JSZip) {
+        const zip = new JSZip();
+        
+        photos.forEach((photo, index) => {
+          const base64Data = photo.base64.split(',')[1];
+          const timestamp = new Date().toISOString().slice(0, 10);
+          const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
+          const fileName = `${timestamp}_${category}_${index + 1}.jpg`;
+          
+          zip.file(fileName, base64Data, {base64: true});
+        });
+        
+        const zipBlob = await zip.generateAsync({
+          type: 'blob',
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 }
+        });
+        
+        const url = window.URL.createObjectURL(zipBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        const exportDate = new Date().toISOString().slice(0, 10);
+        const storeNameSafe = (storeName || 'store').replace(/[^a-zA-Z0-9]/g, '_');
+        link.download = `${exportDate}_${storeNameSafe}_photos.zip`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+        alert(`${photos.length}枚の写真をZIPでダウンロードしました！`);
+        
+      } else {
+        // フォールバック：個別ダウンロード
+        photos.forEach((photo, index) => {
+          setTimeout(() => downloadPhoto(photo), index * 500);
+        });
+        alert('JSZipが利用できないため、写真を個別にダウンロードします');
+      }
+    } catch (error) {
+      console.error('一括ダウンロードエラー:', error);
+      alert('写真の一括ダウンロードに失敗しました');
+    }
+  };
 
   // Web Speech API録音開始関数
   const startWebSpeechRecording = () => {
@@ -812,17 +833,6 @@ function App() {
     } catch (error) {
       console.error('音声認識初期化エラー:', error);
       alert('音声認識の初期化に失敗しました');
-    }
-  };
-
-  // JSZipの動的ロード関数
-  const loadJSZip = async () => {
-    try {
-      const JSZip = await import('jszip');
-      return JSZip.default || JSZip;
-    } catch (error) {
-      console.error('JSZipの読み込みに失敗:', error);
-      return null;
     }
   };
 
@@ -1299,316 +1309,6 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
     }
   };
 
-  // 個別写真ダウンロード関数
-  const downloadPhoto = (photo) => {
-    try {
-      const link = document.createElement('a');
-      link.href = photo.base64;
-      
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
-      link.download = `${timestamp}_${category}_${photo.id}.jpg`;
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-    } catch (error) {
-      console.error('写真ダウンロードエラー:', error);
-      alert('写真のダウンロードに失敗しました');
-    }
-  };
-
-  // 高速化された一括ダウンロード関数
-  const downloadAllPhotos = async () => {
-    if (photos.length === 0) {
-      alert('ダウンロードする写真がありません');
-      return;
-    }
-
-    try {
-      // JSZipの動的ロード
-      const JSZip = await loadJSZip();
-      
-      if (JSZip) {
-        const zip = new JSZip();
-        
-        photos.forEach((photo, index) => {
-          const base64Data = photo.base64.split(',')[1];
-          const timestamp = new Date().toISOString().slice(0, 10);
-          const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
-          const fileName = `${timestamp}_${category}_${index + 1}.jpg`;
-          
-          zip.file(fileName, base64Data, {base64: true});
-        });
-        
-        const zipBlob = await zip.generateAsync({
-          type: 'blob',
-          compression: "DEFLATE",
-          compressionOptions: { level: 6 }
-        });
-        
-        const url = window.URL.createObjectURL(zipBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        
-        const exportDate = new Date().toISOString().slice(0, 10);
-        const storeNameSafe = (storeName || 'store').replace(/[^a-zA-Z0-9]/g, '_');
-        link.download = `${exportDate}_${storeNameSafe}_photos.zip`;
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        
-        alert(`${photos.length}枚の写真をZIPでダウンロードしました！`);
-        
-      } else {
-        // フォールバック：個別ダウンロード
-        photos.forEach((photo, index) => {
-          setTimeout(() => downloadPhoto(photo), index * 500);
-        });
-        alert('JSZipが利用できないため、写真を個別にダウンロードします');
-      }
-    } catch (error) {
-      console.error('一括ダウンロードエラー:', error);
-      alert('写真の一括ダウンロードに失敗しました');
-    }
-  };
-
-  // Base64変換ユーティリティ
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = (error) => reject(error);
-    });
-  };
-
-  // 写真解析関数（改善版）
-  const analyzePhotoWithGemini = async (base64Image) => {
-    console.log('写真解析開始:', { imageSize: base64Image.length });
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ image: base64Image })
-      });
-
-      console.log('APIレスポンスステータス:', response.status);
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: '不明なエラー' }));
-        throw new Error(`写真解析エラー (${response.status}): ${errorData.error || '不明なエラー'}`);
-      }
-
-      const result = await response.json();
-      console.log('解析結果:', {
-        success: result.success,
-        classificationsCount: result.classifications?.length,
-        hasProcessedImage: !!result.processedImage?.data
-      });
-
-      return result;
-    } catch (error) {
-      console.error('写真解析エラー:', error);
-      throw new Error(`写真の解析に失敗しました: ${error.message}`);
-    }
-  };
-
-  // 写真処理関数（改善版）
-  const handlePhotoAdded = async (photoData) => {
-    try {
-      setIsProcessing(true);
-      console.log('写真処理開始:', { size: photoData.size });
-
-      // 写真解析の実行
-      const result = await analyzePhotoWithGemini(photoData.base64);
-      
-      if (!result.success) {
-        throw new Error('写真解析に失敗しました');
-      }
-
-      // 解析結果の処理
-      processClassificationResult(result);
-
-      // 写真の保存
-      const newPhoto = {
-        id: result.id,
-        data: result.processedImage.data,
-        thumbnail: result.processedImage.thumbnail,
-        timestamp: result.timestamp,
-        classifications: result.classifications
-      };
-
-      setPhotos(prev => [...prev, newPhoto]);
-      console.log('写真処理完了:', { 
-        photoId: newPhoto.id,
-        classificationsCount: newPhoto.classifications.length 
-      });
-
-      // 成功メッセージの表示
-      alert(`✅ 写真を解析しました！\n${result.classifications.length}件の情報を検出しました。`);
-
-    } catch (error) {
-      console.error('写真処理エラー:', error);
-      alert(`❌ エラーが発生しました: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // 写真メタデータ抽出関数（改善版）
-  const extractPhotoMetadata = async (file) => {
-    try {
-      console.log('メタデータ抽出開始:', { 
-        fileName: file.name,
-        fileSize: formatFileSize(file.size),
-        fileType: file.type
-      });
-
-      // Base64変換
-      const base64 = await fileToBase64(file);
-      console.log('Base64変換完了:', { 
-        base64Length: base64.length,
-        isTruncated: base64.length > 100
-      });
-
-      return {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-        base64: base64,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      console.error('メタデータ抽出エラー:', error);
-      throw new Error(`写真の読み込みに失敗しました: ${error.message}`);
-    }
-  };
-
-  // 分類結果処理関数（改善版）
-  const processClassificationResult = (result) => {
-    console.log('分類結果処理開始:', { 
-      hasClassifications: !!result.classifications,
-      count: result.classifications?.length 
-    });
-
-    try {
-      setCategories(prevCategories => 
-        prevCategories.map(cat => {
-          const newItems = result.classifications
-            .filter(c => c.category === cat.name)
-            .map(c => ({
-              id: Date.now() + Math.random(),
-              text: c.text,
-              confidence: c.confidence || 0.8,
-              reason: c.reason || '写真解析による分類',
-              timestamp: new Date().toLocaleTimeString(),
-              isPhoto: true
-            }));
-          
-          return {
-            ...cat,
-            items: [...cat.items, ...newItems]
-          };
-        })
-      );
-
-      console.log('分類結果処理完了');
-    } catch (error) {
-      console.error('分類結果処理エラー:', error);
-      throw new Error('分類結果の処理に失敗しました');
-    }
-  };
-
-  // カテゴリへの写真追加
-  const addPhotoToCategory = (photoData) => {
-    setCategories(prevCategories => {
-      return prevCategories.map(category => {
-        if (category.name === photoData.category) {
-          return {
-            ...category,
-            items: [...category.items, {
-              id: Date.now().toString(),
-              photoId: photoData.id,
-              text: photoData.description,
-              confidence: photoData.confidence,
-              timestamp: photoData.timestamp
-            }]
-          };
-        }
-        return category;
-      });
-    });
-  };
-
-  // 写真撮影とAI解析
-  const capturePhoto = async () => {
-    if (isAnalyzing || isProcessing) return;
-    
-    try {
-      setIsAnalyzing(true);
-      console.log('📷 写真撮影開始');
-      
-      // ファイル選択
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.capture = 'environment';
-      
-      const file = await new Promise((resolve) => {
-        input.onchange = (event) => {
-          const files = event.target.files;
-          resolve(files && files.length > 0 ? files[0] : null);
-        };
-        input.click();
-      });
-
-      if (!file) return;
-
-      // 軽量化：リサイズしてからBase64変換
-      const resizedBase64 = await resizeAndConvertImage(file, 800, 600); // 最大800x600に制限
-      
-      // AI解析（高速モード）
-      const analysis = await analyzePhotoWithGemini(resizedBase64);
-      
-      if (!analysis.success) {
-        throw new Error('写真解析に失敗しました');
-      }
-
-      // 写真データの簡略化
-      const photoData = {
-        id: analysis.id,
-        base64: analysis.processedImage.data, // リサイズ済み画像
-        timestamp: new Date().toLocaleString('ja-JP'),
-        category: analysis.classifications[0]?.category || '店舗環境',
-        description: analysis.classifications[0]?.text || '写真が追加されました',
-        confidence: analysis.classifications[0]?.confidence || 0.7
-      };
-
-      // 状態更新
-      setPhotos(prev => [...prev, photoData]);
-      
-      // カテゴリに自動追加
-      if (analysis.classifications.length > 0) {
-        addClassificationsToCategories(analysis.classifications);
-      }
-
-      alert(`📸 写真解析完了！\n${analysis.classifications.length}件の情報を検出`);
-
-    } catch (error) {
-      console.error('写真撮影エラー:', error);
-      alert(`写真の処理に失敗しました: ${error.message}`);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   // APIヘルスチェック
   useEffect(() => {
     const checkHealth = async () => {
@@ -1660,7 +1360,7 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
 
         {/* 写真撮影機能 */}
         <PhotoCapture 
-          onPhotoAdded={handlePhotoAdded}
+          onPhotoAdded={() => {}}
           categories={categories}
           setCategories={setCategories}
           isProcessing={isAnalyzing}
@@ -1668,7 +1368,7 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
           photos={photos}
           setPhotos={setPhotos}
           downloadPhoto={downloadPhoto}
-          downloadAllPhotos={downloadAllPhotos}  // 追加: downloadAllPhotosを渡す
+          downloadAllPhotos={downloadAllPhotos}
         />
 
         {/* コントロールボタン - 上部（安全な機能のみ） */}
@@ -1707,31 +1407,6 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
             <span className="text-sm font-medium">
               {isProcessing ? '分類中...' : '音声認識結果を分類'}
             </span>
-          </button>
-
-          {/* 分類ボタン */}
-          <button
-            onClick={async () => {
-              if (!transcript.trim()) {
-                alert('分類するテキストがありません。');
-                return;
-              }
-              setIsProcessing(true);
-              try {
-                await performAIClassification(transcript, categories, setCategories);
-                alert('分類が完了しました！');
-              } catch (error) {
-                console.error('分類エラー:', error);
-                alert('分類中にエラーが発生しました: ' + error.message);
-              } finally {
-                setIsProcessing(false);
-              }
-            }}
-            disabled={isProcessing || !transcript.trim()}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Brain size={20} />
-            テキストを分類
           </button>
         </div>
 
