@@ -1,33 +1,12 @@
-// シンプルなService Worker
-const CACHE_NAME = 'store-visit-ai-v1';
-const urlsToCache = [
-  '/',
-  '/static/js/bundle.js',
-  '/static/css/main.css'
-];
-
+// Service Worker を完全に無効化
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
-      })
-      .catch((error) => {
-        console.log('Cache addAll failed:', error);
-      })
-  );
-});
-
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Cache hit - return response
-        if (response) {
-          return response;
-        }
-        return fetch(event.request);
-      })
-  );
-});
+    console.log('Service Worker: 無効化');
+    self.skipWaiting();
+  });
+  
+  self.addEventListener('activate', (event) => {
+    console.log('Service Worker: 無効化');
+    event.waitUntil(self.clients.claim());
+  });
+  
+  // fetchイベントを処理しない（CORSエラーの原因を除去）
