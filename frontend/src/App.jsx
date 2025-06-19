@@ -951,36 +951,85 @@ function App() {
     }
   };
 
-  // データエクスポート機能
+  // データエクスポート機能（CSV形式）
   const exportData = () => {
     try {
-      const exportData = {
-        storeName,
-        timestamp: new Date().toISOString(),
-        categories: categories,
-        insights,
-        qaPairs,
-        photos: photos.map(p => ({
-          ...p,
-          base64: p.base64.substring(0, 100) + '...[truncated]'
-        }))
-      };
-
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-        type: 'application/json'
-      });
+      let csvContent = '\uFEFF';  // BOMを追加してExcelで文字化けを防ぐ
       
+      // ヘッダー情報
+      csvContent += '店舗視察レポート\n';
+      csvContent += `店舗名,${storeName || '未設定'}\n`;
+      csvContent += `作成日時,${new Date().toLocaleString('ja-JP')}\n`;
+      csvContent += `写真枚数,${photos.length}\n\n`;
+
+      // カテゴリごとのデータ
+      categories.forEach(category => {
+        if (category.items.length > 0) {
+          csvContent += `${category.name}\n`;
+          csvContent += '内容,信頼度,記録時刻,写真有無\n';
+          
+          category.items.forEach(item => {
+            const escapedText = `"${item.text.replace(/"/g, '""')}"`;  // カンマやダブルクォートをエスケープ
+            const confidence = item.confidence ? `${Math.round(item.confidence * 100)}%` : '-';
+            const timestamp = item.timestamp || '-';
+            const hasPhoto = item.isPhoto ? '有' : '無';
+            
+            csvContent += `${escapedText},${confidence},${timestamp},${hasPhoto}\n`;
+          });
+          csvContent += '\n';
+        }
+      });
+
+      // 音声認識結果
+      if (transcript.trim()) {
+        csvContent += '音声認識ログ\n';
+        csvContent += `"${transcript.replace(/"/g, '""').replace(/\n/g, ' ')}"\n\n`;
+      }
+
+      // AIインサイト
+      if (insights.trim()) {
+        csvContent += 'AIインサイト\n';
+        csvContent += `"${insights.replace(/"/g, '""').replace(/\n/g, ' ')}"\n\n`;
+      }
+
+      // Q&A履歴
+      if (qaPairs.length > 0) {
+        csvContent += 'Q&A履歴\n';
+        csvContent += '質問,回答,記録時刻\n';
+        qaPairs.forEach(qa => {
+          const escapedQ = `"${qa.question.replace(/"/g, '""')}"`;
+          const escapedA = `"${qa.answer.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+          csvContent += `${escapedQ},${escapedA},${qa.timestamp}\n`;
+        });
+        csvContent += '\n';
+      }
+
+      // 写真一覧
+      if (photos.length > 0) {
+        csvContent += '写真一覧\n';
+        csvContent += '撮影日時,カテゴリ,説明,信頼度\n';
+        photos.forEach(photo => {
+          const escapedDesc = `"${photo.description.replace(/"/g, '""')}"`;
+          const confidence = photo.confidence ? `${Math.round(photo.confidence * 100)}%` : '-';
+          csvContent += `${photo.timestamp},${photo.category},${escapedDesc},${confidence}\n`;
+        });
+      }
+
+      // CSVファイルとして保存
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `store-analysis-${storeName || 'data'}-${new Date().toISOString().split('T')[0]}.json`;
+      link.href = url;
+      link.download = `店舗視察_${storeName || '未設定'}_${new Date().toISOString().slice(0, 10)}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
-      URL.revokeObjectURL(link.href);
+      URL.revokeObjectURL(url);
+
+      alert('CSVファイルをエクスポートしました！');
     } catch (error) {
       console.error('エクスポートエラー:', error);
-      alert('データのエクスポートに失敗しました');
+      alert('エクスポート中にエラーが発生しました');
     }
   };
 
@@ -1232,16 +1281,16 @@ function App() {
         {/* 分類結果表示 */}
         <ClassificationSection categories={categories} />
 
-        {/* データ操作ボタン */}
-        <div className="flex justify-center gap-4 mt-8 mb-4">
+        {/* データ操作ボタン - 下部の余白を増やして浮動ボタンとの重なりを防ぐ */}
+        <div className="flex justify-center gap-4 mt-8 mb-24">
           <button
             onClick={exportData}
             disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
             className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 shadow-md"
-            title="視察データをエクスポート"
+            title="視察データをCSVファイルとして出力"
           >
             <Download size={20} />
-            <span>エクスポート</span>
+            <span>CSV出力</span>
           </button>
           
           <button
