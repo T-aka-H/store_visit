@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin, Square, PenTool } from 'lucide-react';
+import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin } from 'lucide-react';
 
 // API設定
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://store-visit-7cux.onrender.com'  // 本番環境のバックエンドURL
+  ? 'https://store-visit-7cux.onrender.com'
   : 'http://localhost:3001';
 
 console.log('環境設定:', {
@@ -31,10 +31,7 @@ const CATEGORY_MAPPING = {
 // AI分類実行関数
 const performAIClassification = async (text, categories, setCategories) => {
   try {
-    console.log('🔄 AI分類開始（CORS回避モード）');
-    console.log('送信データ:', { text, categories: categories.map(cat => cat.name) });
-    
-    // CORSを回避してAPIを呼び出す
+    console.log('🔄 AI分類開始');
     const response = await fetch(`${API_BASE_URL}/api/classify`, {
       method: 'POST',
       mode: 'cors',
@@ -43,32 +40,16 @@ const performAIClassification = async (text, categories, setCategories) => {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify({ text })  // categoriesは固定のため、送信を省略
+      body: JSON.stringify({ text })
     });
 
-    // レスポンスのステータスとテキストを取得
     const responseText = await response.text();
-    console.log('APIレスポンス:', {
-      status: response.status,
-      statusText: response.statusText,
-      text: responseText
-    });
-
     if (!response.ok) {
       throw new Error(`API呼び出し失敗 (${response.status}): ${responseText}`);
     }
 
-    // JSONとしてパース
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('JSONパースエラー:', parseError);
-      throw new Error(`レスポンスのJSONパースに失敗: ${responseText}`);
-    }
-
+    const result = JSON.parse(responseText);
     if (result.classifications) {
-      console.log('分類結果:', result.classifications);
       setCategories(prevCategories => 
         prevCategories.map(cat => {
           const newItems = result.classifications
@@ -88,20 +69,14 @@ const performAIClassification = async (text, categories, setCategories) => {
           };
         })
       );
-      console.log('分類完了:', result);
-    } else {
-      throw new Error('分類結果が不正な形式です');
     }
   } catch (error) {
-    console.error('AI分類エラー (CORS):', error);
-    
-    // CORS エラーの場合は、ローカル分類を実行
-    console.log('🔧 フォールバック: ローカル分類実行');
+    console.error('AI分類エラー:', error);
     performLocalClassification(text, categories, setCategories);
   }
 };
 
-// ローカル分類関数を追加
+// ローカル分類関数
 const performLocalClassification = (text, categories, setCategories) => {
   const keywords = {
     '価格情報': ['円', '価格', '値段', '料金', '安い', '高い', '割引'],
@@ -112,7 +87,6 @@ const performLocalClassification = (text, categories, setCategories) => {
     '店舗情報': ['店舗', '営業', '場所', '立地', '店']
   };
   
-  // 価格の正確な抽出
   const priceMatches = text.match(/(\S+?)\s*(\d+)\s*円/g) || [];
   
   Object.entries(keywords).forEach(([category, words]) => {
@@ -143,47 +117,7 @@ const performLocalClassification = (text, categories, setCategories) => {
     }
   });
   
-  alert('✅ ローカル分類が完了しました！\n(バックエンドAPIが利用できないため、フロントエンドで処理)');
-};
-
-// CSV形式をカテゴリ配列に変換
-const convertCsvToCategories = (csvFormat) => {
-  const categories = [
-    { name: '店舗情報', items: [] },
-    { name: '価格情報', items: [] },
-    { name: '売り場情報', items: [] },
-    { name: '客層・混雑度', items: [] },
-    { name: '商品・品揃え', items: [] },
-    { name: '店舗環境', items: [] }
-  ];
-
-  try {
-    const lines = csvFormat.split('\n');
-    
-    lines.forEach(line => {
-      const parts = line.split(',');
-      if (parts.length >= 3) {
-        const [category, text, confidence] = parts;
-        const categoryObj = categories.find(cat => 
-          cat.name === category.trim() || CATEGORY_MAPPING[category.trim()] === cat.name
-        );
-        
-        if (categoryObj && text.trim()) {
-          categoryObj.items.push({
-            id: Date.now() + Math.random(),
-            text: text.trim(),
-            confidence: parseFloat(confidence) || 0.8,
-            timestamp: new Date().toLocaleTimeString(),
-            isPhoto: false
-          });
-        }
-      }
-    });
-  } catch (error) {
-    console.error('CSV変換エラー:', error);
-  }
-
-  return categories;
+  alert('✅ ローカル分類が完了しました！');
 };
 
 // 分類結果テーブルコンポーネント
@@ -291,7 +225,6 @@ const PhotoCapture = ({
         )}
       </h3>
       
-      {/* 写真撮影の説明 */}
       <div className="mb-4 p-3 bg-red-50 rounded-lg border border-red-200">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-red-600">📱</span>
@@ -300,15 +233,8 @@ const PhotoCapture = ({
         <p className="text-red-700 text-xs mb-2">
           左下の赤いカメラボタンで写真撮影が可能です。AIが自動で内容を分析・分類します。
         </p>
-        <div className="text-xs text-red-600 space-y-1">
-          <div>📷 <strong>撮影:</strong> 左下の赤いカメラボタンをタップ</div>
-          <div>🤖 <strong>AI解析:</strong> 撮影後、自動でカテゴリ分類・説明文生成</div>
-          <div>💾 <strong>保存:</strong> 個別ダウンロード・一括ZIP保存対応</div>
-          <div>🏷️ <strong>自動分類:</strong> 店舗環境、商品、価格等を自動判定</div>
-        </div>
       </div>
 
-      {/* 撮影済み写真の表示 */}
       {photos.length > 0 ? (
         <>
           <h4 className="text-sm font-medium text-gray-600 mb-3 flex items-center gap-2">
@@ -385,7 +311,6 @@ const PhotoCapture = ({
             ))}
           </div>
           
-          {/* 写真関連の操作ボタン */}
           <div className="flex gap-2 justify-center">
             <button
               onClick={downloadAllPhotos}
@@ -405,14 +330,6 @@ const PhotoCapture = ({
           <p className="text-xs text-gray-400 mb-3">
             左下の赤いカメラボタンで撮影を開始してください
           </p>
-          <div className="bg-gray-50 rounded-lg p-3 mx-8">
-            <p className="text-xs text-gray-500">
-              <strong>💡 撮影のコツ:</strong><br/>
-              商品、価格表示、店内環境など、<br/>
-              視察に必要な要素を撮影すると<br/>
-              AIが自動で分類・分析します
-            </p>
-          </div>
         </div>
       )}
     </div>
@@ -434,32 +351,6 @@ const ClassificationSection = ({ categories }) => {
   );
 };
 
-// ヘルスチェック関数
-const checkApiHealth = async () => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/health`);
-    const health = await response.json();
-    console.log('APIヘルスチェック:', health);
-    return health.status === 'OK';
-  } catch (error) {
-    console.error('ヘルスチェックエラー:', error);
-    return false;
-  }
-};
-
-// デバッグ情報取得関数
-const fetchDebugInfo = async () => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/debug/photo-analysis`);
-    const debug = await response.json();
-    console.log('デバッグ情報:', debug);
-    return debug;
-  } catch (error) {
-    console.error('デバッグ情報取得エラー:', error);
-    return null;
-  }
-};
-
 // JSZipの動的ロード関数
 const loadJSZip = async () => {
   try {
@@ -469,51 +360,6 @@ const loadJSZip = async () => {
     console.error('JSZipの読み込みに失敗:', error);
     return null;
   }
-};
-
-// 画像リサイズ関数
-const resizeAndConvertImage = (file, maxWidth = 800, maxHeight = 600) => {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    
-    img.onload = () => {
-      // アスペクト比を保持してリサイズ
-      let { width, height } = img;
-      
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
-        width *= ratio;
-        height *= ratio;
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      // 高品質リサイズ
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // JPEG品質を調整（ファイルサイズ削減）
-      const base64 = canvas.toDataURL('image/jpeg', 0.8);
-      resolve(base64);
-    };
-    
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
-};
-
-// Base64変換ユーティリティ
-const fileToBase64 = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = (error) => reject(error);
-  });
 };
 
 // メインアプリコンポーネント
@@ -532,12 +378,10 @@ function App() {
   const [transcript, setTranscript] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [audioChunks, setAudioChunks] = useState([]);
   const [insights, setInsights] = useState('');
   const [questionInput, setQuestionInput] = useState('');
   const [qaPairs, setQaPairs] = useState([]);
   const [isAnswering, setIsAnswering] = useState(false);
-  const [showAiFeatures, setShowAiFeatures] = useState(false);
   const [showTextInput, setShowTextInput] = useState(false);
   const [isWebSpeechSupported, setIsWebSpeechSupported] = useState(false);
   const [isWebSpeechRecording, setIsWebSpeechRecording] = useState(false);
@@ -545,19 +389,51 @@ function App() {
   const [uploadedAudio, setUploadedAudio] = useState(null);
   
   const recognitionRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const streamRef = useRef(null);
 
-  // 高速化された写真解析関数
+  // Web Speech API初期化
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      setIsWebSpeechSupported(true);
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'ja-JP';
+      
+      recognitionRef.current.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        setTranscript(prev => prev + finalTranscript);
+      };
+      
+      recognitionRef.current.onerror = (event) => {
+        console.error('音声認識エラー:', event.error);
+        setIsWebSpeechRecording(false);
+      };
+      
+      recognitionRef.current.onend = () => {
+        setIsWebSpeechRecording(false);
+      };
+    }
+  }, []);
+
+  // 高速化されたAI解析関数
   const analyzePhotoWithGemini = async (base64Image) => {
-    console.log('🚀 高速写真解析開始');
+    console.log('🚀 AI解析開始');
     const startTime = Date.now();
     
     try {
-      // タイムアウト設定（10秒）
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
       const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
         method: 'POST',
         headers: {
@@ -565,30 +441,33 @@ function App() {
         },
         body: JSON.stringify({ 
           image: base64Image,
-          fast_mode: true // 高速モードを指定
-        }),
-        signal: controller.signal
+          fast_mode: true
+        })
       });
-
-      clearTimeout(timeoutId);
+      
+      console.log(`📡 APIレスポンス: ${response.status} ${response.statusText}`);
       
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+        } catch (parseError) {
+          const errorText = await response.text();
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(`API Error: ${errorMessage}`);
       }
 
       const result = await response.json();
       const processingTime = Date.now() - startTime;
       
-      console.log(`✅ 写真解析完了 (${processingTime}ms)`);
+      console.log(`✅ AI解析完了 (${processingTime}ms)`);
       return result;
       
     } catch (error) {
       const processingTime = Date.now() - startTime;
-      console.error(`❌ 写真解析エラー (${processingTime}ms):`, error);
-      
-      if (error.name === 'AbortError') {
-        throw new Error('写真解析がタイムアウトしました（10秒以内に完了しませんでした）');
-      }
+      console.error(`❌ AI解析エラー (${processingTime}ms):`, error);
       throw error;
     }
   };
@@ -837,817 +716,560 @@ function App() {
     }
   };
 
-  // 簡略化された写真ダウンロード関数
-  const downloadPhoto = (photo) => {
-    try {
-      const link = document.createElement('a');
-      link.href = photo.base64;
-      
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
-      link.download = `${timestamp}_${category}_${photo.id}.jpg`;
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-    } catch (error) {
-      console.error('写真ダウンロードエラー:', error);
-      alert('写真のダウンロードに失敗しました');
-    }
-  };
-
-  // 高速化された一括ダウンロード関数
-  const downloadAllPhotos = async () => {
-    if (photos.length === 0) {
-      alert('ダウンロードする写真がありません');
+  // 音声録音機能（Web Speech API版）
+  const toggleRecording = () => {
+    if (!isWebSpeechSupported) {
+      alert('お使いのブラウザは音声認識に対応していません');
       return;
     }
 
-    try {
-      // JSZipの動的ロード
-      const JSZip = await loadJSZip();
-      
-      if (JSZip) {
-        const zip = new JSZip();
-        
-        photos.forEach((photo, index) => {
-          const base64Data = photo.base64.split(',')[1];
-          const timestamp = new Date().toISOString().slice(0, 10);
-          const category = photo.category.replace(/[^a-zA-Z0-9]/g, '_');
-          const fileName = `${timestamp}_${category}_${index + 1}.jpg`;
-          
-          zip.file(fileName, base64Data, {base64: true});
-        });
-        
-        const zipBlob = await zip.generateAsync({
-          type: 'blob',
-          compression: "DEFLATE",
-          compressionOptions: { level: 6 }
-        });
-        
-        const url = window.URL.createObjectURL(zipBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        
-        const exportDate = new Date().toISOString().slice(0, 10);
-        const storeNameSafe = (storeName || 'store').replace(/[^a-zA-Z0-9]/g, '_');
-        link.download = `${exportDate}_${storeNameSafe}_photos.zip`;
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        
-        alert(`${photos.length}枚の写真をZIPでダウンロードしました！`);
-        
-      } else {
-        // フォールバック：個別ダウンロード
-        photos.forEach((photo, index) => {
-          setTimeout(() => downloadPhoto(photo), index * 500);
-        });
-        alert('JSZipが利用できないため、写真を個別にダウンロードします');
-      }
-    } catch (error) {
-      console.error('一括ダウンロードエラー:', error);
-      alert('写真の一括ダウンロードに失敗しました');
-    }
-  };
-
-  // Web Speech API録音開始関数
-  const startWebSpeechRecording = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      alert('このブラウザでは音声認識がサポートされていません。Chrome、Safari、Edgeをお使いください。');
-      return;
-    }
-
-    try {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'ja-JP';
-      recognition.maxAlternatives = 1;
-
-      let finalTranscript = '';
-
-      recognition.onstart = () => {
-        console.log('Web Speech API開始');
+    if (isWebSpeechRecording) {
+      recognitionRef.current?.stop();
+      setIsWebSpeechRecording(false);
+    } else {
+      try {
+        recognitionRef.current?.start();
         setIsWebSpeechRecording(true);
-        setTranscript(prev => prev + '[録音中]\n');
-      };
-
-      recognition.onresult = (event) => {
-        let interimTranscript = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript + ' ';
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-
-        setTranscript(prev => {
-          const lines = prev.split('\n\n');
-          const lastIndex = lines.length - 1;
-          
-          if (lines[lastIndex].startsWith('[録音中]')) {
-            lines[lastIndex] = '[録音中] ' + finalTranscript + interimTranscript;
-          }
-          
-          return lines.join('\n\n');
-        });
-      };
-
-      recognition.onerror = (event) => {
-        console.error('Web Speech API エラー:', event.error);
-        setIsWebSpeechRecording(false);
-        
-        let errorMessage = '音声認識でエラーが発生しました。';
-        if (event.error === 'no-speech') {
-          errorMessage = '音声が検出されませんでした。マイクが正常に動作しているか確認してください。';
-        } else if (event.error === 'not-allowed') {
-          errorMessage = 'マイクの使用が許可されていません。ブラウザの設定を確認してください。';
-        }
-        
-        alert(errorMessage);
-      };
-
-      recognition.onend = () => {
-        console.log('Web Speech API終了');
-        setIsWebSpeechRecording(false);
-        
-        if (finalTranscript.trim()) {
-          processWebSpeechResult(finalTranscript.trim());
-        }
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-      
-    } catch (error) {
-      console.error('音声認識初期化エラー:', error);
-      alert('音声認識の初期化に失敗しました');
+      } catch (error) {
+        console.error('音声認識開始エラー:', error);
+        alert('音声認識を開始できませんでした');
+      }
     }
   };
 
-  // useEffectでWeb Speech APIサポート確認
-  useEffect(() => {
-    const checkWebSpeechSupport = () => {
-      const isSupported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
-      setIsWebSpeechSupported(isSupported);
-      console.log('Web Speech API サポート:', isSupported);
-    };
+  // 音声ファイルアップロード機能
+  const handleAudioUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    checkWebSpeechSupport();
-  }, []);
+    if (!file.type.startsWith('audio/')) {
+      alert('音声ファイルを選択してください');
+      return;
+    }
 
-  // アップロードされた音声の処理（Gemini 1.5 Flash使用）
-  const processUploadedAudio = async () => {
-    if (!uploadedAudio) return;
-
+    setUploadedAudio(file);
     setIsProcessing(true);
-    
+
     try {
-      console.log('=== Gemini音声認識開始 ===');
-      console.log('ファイル情報:', {
-        name: uploadedAudio.name,
-        type: uploadedAudio.type,
-        size: uploadedAudio.size,
-        lastModified: uploadedAudio.lastModified
-      });
-
-      // FormDataを作成（Gemini APIに音声ファイルを送信）
       const formData = new FormData();
-      formData.append('audio', uploadedAudio);
-      formData.append('model', 'gemini-1.5-flash');
-      formData.append('language', 'ja-JP');
-      formData.append('source', 'file_upload');
+      formData.append('audio', file);
 
-      console.log('Gemini APIリクエスト送信中...');
-
-      const response = await fetch(`${API_BASE_URL}/api/transcribe-audio-gemini`, {
+      const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
         method: 'POST',
         body: formData
       });
 
-      console.log('Gemini APIレスポンス状態:', response.status, response.statusText);
-
       if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-        
-        try {
-          const errorData = await response.json();
-          console.error('Gemini APIエラー詳細:', errorData);
-          errorMessage = errorData.error || errorData.message || errorMessage;
-        } catch (parseError) {
-          console.error('エラーレスポンスのパースに失敗:', parseError);
-          const errorText = await response.text();
-          console.error('エラーレスポンステキスト:', errorText);
-          
-          if (response.status === 404) {
-            throw new Error('Gemini音声認識APIが実装されていません。バックエンド側で `/api/transcribe-audio-gemini` エンドポイントの実装が必要です。');
-          }
-          
-          errorMessage = errorText || errorMessage;
-        }
-        
-        throw new Error(errorMessage);
+        throw new Error(`音声認識エラー: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log('Gemini音声認識結果:', result);
-
-      let transcriptText = '';
+      
       if (result.transcript) {
-        transcriptText = result.transcript;
-      } else if (result.transcription) {
-        transcriptText = result.transcription;
-      } else if (result.text) {
-        transcriptText = result.text;
-      } else if (typeof result === 'string') {
-        transcriptText = result;
+        setTranscript(prev => prev + result.transcript + ' ');
+        alert('音声ファイルの認識が完了しました！');
       } else {
-        console.warn('予期しないレスポンス形式:', result);
-        throw new Error('Gemini音声認識の結果を取得できませんでした');
+        throw new Error('音声認識結果が空でした');
       }
-
-      if (transcriptText && transcriptText.trim()) {
-        setTranscript(prev => {
-          const newContent = `[Gemini音声認識: ${uploadedAudio.name}]\n${transcriptText}`;
-          return prev ? `${prev}\n\n${newContent}` : newContent;
-        });
-
-        // 店舗名の自動抽出のみ実行
-        if (!storeName) {
-          const extractedStoreName = extractStoreName(transcriptText);
-          if (extractedStoreName) {
-            console.log('店舗名を自動抽出:', extractedStoreName);
-            setStoreName(extractedStoreName);
-          }
-        }
-
-        alert(`✅ Gemini 1.5 Flashによる音声認識が完了しました！\n\nファイル: ${uploadedAudio.name}\n認識結果: ${transcriptText.length}文字\n\n分類は手動で実行してください。`);
-      } else {
-        console.warn('Gemini音声認識結果が空です:', result);
-        throw new Error('音声から文字起こしできませんでした。音声が明瞭でない、またはサポートされていない形式の可能性があります。');
-      }
-
     } catch (error) {
-      console.error('Gemini音声処理エラー:', error);
-      
-      let userMessage = 'Gemini音声認識中にエラーが発生しました。';
-      
-      if (error.message.includes('Gemini音声認識APIが実装されていません')) {
-        userMessage = `🚧 バックエンド実装が必要です
-
-Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以下のAPIエンドポイントの実装が必要です：
-
-📍 エンドポイント: /api/transcribe-audio-gemini
-📍 メソッド: POST
-📍 形式: FormData (音声ファイル)
-📍 レスポンス: { transcript: "認識結果" }
-
-💡 一時的な代替案：
-右下の青いマイクボタンでリアルタイム音声認識をご利用ください。`;
-      } else if (error.message.includes('Invalid file format')) {
-        userMessage = 'このファイル形式はGeminiでサポートされていません。MP3、WAV、M4Aファイルをお試しください。';
-      } else if (error.message.includes('File too large')) {
-        userMessage = 'ファイルサイズが大きすぎます。Gemini APIの制限内（通常50MB以下）のファイルをお試しください。';
-      } else if (error.message.includes('quota') || error.message.includes('limit')) {
-        userMessage = 'Gemini APIの利用制限に達しました。しばらく時間をおいてから再試行してください。';
-      }
-      
-      alert(userMessage);
+      console.error('音声ファイル処理エラー:', error);
+      alert('音声ファイルの処理に失敗しました');
     } finally {
       setIsProcessing(false);
       setUploadedAudio(null);
     }
   };
 
-  const stopWebSpeechRecording = () => {
-    if (recognitionRef.current && isWebSpeechRecording) {
-      console.log('Web Speech API 停止');
-      recognitionRef.current.stop();
-    }
-  };
-
-  // 店舗名抽出関数
-  const extractStoreName = (text) => {
-    console.log('店舗名抽出開始:', text);
-    
-    const storePatterns = [
-      /店舗名\s*([^。、\s]+)/i,
-      /店舗名は\s*([^。、\s]+)/i,
-      /(?:今日は|今回は|本日は)?\s*(.+?店)\s*(?:に来|を視察|の視察|について|です|だ|。)/i,
-      /(?:ここは|この店は)?\s*(.+?店)\s*(?:です|だ|。|の)/i,
-    ];
-
-    for (const pattern of storePatterns) {
-      const match = text.match(pattern);
-      if (match && match[1]) {
-        let storeName = match[1].trim();
-        
-        storeName = storeName
-          .replace(/^(の|を|に|で|は|が|も)\s*/, '')
-          .replace(/\s*(です|だ|である|。|、)$/, '')
-          .trim();
-        
-        if (storeName.length >= 2 && storeName.length <= 50) {
-          console.log('店舗名マッチ:', storeName, 'パターン:', pattern);
-          return storeName;
-        }
-      }
-    }
-    
-    console.log('店舗名抽出失敗');
-    return null;
-  };
-
-  // 音声認識結果の処理
-  const processWebSpeechResult = async (transcriptText) => {
-    console.log('=== Web Speech 結果処理開始 ===');
-    setIsProcessing(true);
-    
-    try {
-      // 音声認識結果をトランスクリプトに追加するだけ
-      setTranscript(prev => {
-        const lines = prev.split('\n\n');
-        const lastLine = lines[lines.length - 1];
-        if (lastLine.startsWith('[録音中]')) {
-          lines[lines.length - 1] = transcriptText;
-        } else {
-          lines.push(transcriptText);
-        }
-        return lines.join('\n\n');
-      });
-
-      // 店舗名の自動抽出のみ実行
-      if (!storeName) {
-        const extractedStoreName = extractStoreName(transcriptText);
-        if (extractedStoreName) {
-          console.log('店舗名を自動抽出:', extractedStoreName);
-          setStoreName(extractedStoreName);
-        }
-      }
-
-      console.log('✅ 音声認識完了（分類は手動で実行してください）');
-
-    } catch (error) {
-      console.error('Web Speech 結果処理エラー:', error);
-      alert('音声認識結果の処理中にエラーが発生しました: ' + error.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // 音声ファイルアップロード処理
-  const handleAudioUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      // ファイルサイズチェック（50MB制限）
-      if (file.size > 50 * 1024 * 1024) {
-        alert('ファイルサイズが大きすぎます。50MB以下の音声ファイルを選択してください。');
-        return;
-      }
-
-      // 音声ファイル形式チェック（M4A対応を強化）
-      const allowedTypes = [
-        'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/m4a', 
-        'audio/x-m4a', 'audio/mp4a-latm', 'audio/aac',
-        'audio/webm', 'audio/ogg'
-      ];
-      
-      // ファイル拡張子もチェック
-      const fileName = file.name.toLowerCase();
-      const allowedExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.webm', '.ogg', '.mp4'];
-      const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
-      
-      if (!allowedTypes.includes(file.type) && !hasValidExtension) {
-        alert('対応していない音声形式です。MP3、WAV、M4A等の音声ファイルを選択してください。');
-        return;
-      }
-
-      // M4Aファイルの場合は追加の警告
-      if (fileName.endsWith('.m4a') || file.type.includes('m4a')) {
-        console.log('M4Aファイルを検出しました。iPhoneで録音された場合、ロスレス形式だと処理できない可能性があります。');
-      }
-
-      setUploadedAudio(file);
-      console.log('音声ファイルアップロード:', file.name, file.type, (file.size / 1024 / 1024).toFixed(1) + 'MB');
-    }
-  };
-
-  const clearData = () => {
-    setTranscript('');
-    setCategories(categories.map(cat => ({ ...cat, items: [] })));
-    setInsights('');
-    setQaPairs([]);
-    setQuestionInput('');
-    setTextInput('');
-    setPhotos([]);
-    setUploadedAudio(null);
-  };
-
-  const processTextInput = async () => {
-    if (!textInput.trim()) return;
-    
-    setIsProcessing(true);
-    
-    try {
-      // トランスクリプトに追加
-      setTranscript(prev => prev + textInput + '\n\n');
-      
-      // AI分類を実行
-      await performAIClassification(textInput, categories, setCategories);
-      
+  // テキスト入力追加機能
+  const addTextInput = () => {
+    if (textInput.trim()) {
+      setTranscript(prev => prev + textInput.trim() + ' ');
       setTextInput('');
-      alert('テキストが追加され、分類が完了しました！');
-      
-    } catch (error) {
-      console.error('テキスト処理エラー:', error);
-      alert('テキスト処理中にエラーが発生しました: ' + error.message);
-    } finally {
-      setIsProcessing(false);
+      setShowTextInput(false);
     }
   };
 
-  const generateInsights = async () => {
-    if (categories.every(cat => cat.items.length === 0) && !transcript.trim()) {
-      alert('分析対象のデータがありません。まず音声録音を行ってください。');
+  // AI分類処理
+  const processTranscript = async () => {
+    if (!transcript.trim()) {
+      alert('音声が認識されていません');
       return;
     }
-    
+
     setIsProcessing(true);
-    
     try {
-      const insightData = {
-        storeName: storeName || '未設定',
-        categories: categories.filter(cat => cat.items.length > 0).map(cat => ({
-          name: cat.name,
-          items: cat.items.map(item => item.text)
-        })),
-        transcript: transcript,
-        photos: photos.map(photo => ({
-          category: photo.category,
-          description: photo.description,
-          timestamp: photo.timestamp
-        }))
-      };
+      await performAIClassification(transcript, categories, setCategories);
+      alert('✅ AI分類が完了しました！');
+    } catch (error) {
+      console.error('分類処理エラー:', error);
+      alert('分類処理に失敗しました');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
-      console.log('インサイト生成データ:', insightData);
+  // インサイト生成機能
+  const generateInsights = async () => {
+    const allItems = categories.flatMap(cat => cat.items);
+    if (allItems.length === 0) {
+      alert('分析対象となるデータがありません');
+      return;
+    }
 
-      const response = await fetch(`${API_BASE_URL}/api/generate-insights`, {
+    setIsProcessing(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/insights`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(insightData)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          categories: categories,
+          storeName: storeName 
+        })
       });
 
-      console.log('インサイトレスポンス状態:', response.status);
-
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('インサイトAPIエラー:', errorText);
-        throw new Error(`API Error: ${response.status} - ${errorText}`);
+        throw new Error(`インサイト生成エラー: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log('インサイト結果:', result);
-      setInsights(result.insights);
-      
+      setInsights(result.insights || 'インサイトの生成に失敗しました');
     } catch (error) {
       console.error('インサイト生成エラー:', error);
-      alert(`インサイト生成中にエラーが発生しました: ${error.message}`);
+      setInsights('ローカルインサイト: 収集されたデータの分析を行ってください');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const askQuestion = async () => {
+  // Q&A機能
+  const handleQuestionSubmit = async () => {
     if (!questionInput.trim()) return;
-    
-    setIsAnswering(true);
-    
-    try {
-      const questionData = {
-        question: questionInput,
-        storeName: storeName || '未設定',
-        categories: categories.filter(cat => cat.items.length > 0).map(cat => ({
-          name: cat.name,
-          items: cat.items.map(item => item.text)
-        })),
-        transcript: transcript,
-        photos: photos.map(photo => ({
-          category: photo.category,
-          description: photo.description,
-          timestamp: photo.timestamp
-        }))
-      };
 
-      const response = await fetch(`${API_BASE_URL}/api/ask-question`, {
+    const question = questionInput.trim();
+    setQuestionInput('');
+    setIsAnswering(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/qa`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(questionData)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          question,
+          categories: categories,
+          storeName: storeName 
+        })
       });
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        throw new Error(`Q&A エラー: ${response.status}`);
       }
 
       const result = await response.json();
       
       setQaPairs(prev => [...prev, {
-        question: questionInput,
-        answer: result.answer,
+        question,
+        answer: result.answer || '回答の生成に失敗しました',
         timestamp: new Date().toLocaleTimeString()
       }]);
-      
-      setQuestionInput('');
-      
     } catch (error) {
-      console.error('質問応答エラー:', error);
-      alert(`質問処理中にエラーが発生しました: ${error.message}`);
+      console.error('Q&A エラー:', error);
+      setQaPairs(prev => [...prev, {
+        question,
+        answer: '申し訳ございませんが、現在回答を生成できません',
+        timestamp: new Date().toLocaleTimeString()
+      }]);
     } finally {
       setIsAnswering(false);
     }
   };
 
-  const exportToExcel = () => {
+  // データクリア機能
+  const clearAllData = () => {
+    if (window.confirm('すべてのデータを削除しますか？この操作は取り消せません。')) {
+      setCategories(prev => prev.map(cat => ({ ...cat, items: [] })));
+      setTranscript('');
+      setInsights('');
+      setQaPairs([]);
+      setPhotos([]);
+      alert('すべてのデータが削除されました');
+    }
+  };
+
+  // 写真ダウンロード機能
+  const downloadPhoto = (photo) => {
     try {
-      let csvContent = '\uFEFF';
+      const link = document.createElement('a');
+      link.href = photo.base64;
+      link.download = `store-photo-${photo.id || Date.now()}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('写真ダウンロードエラー:', error);
+      alert('写真のダウンロードに失敗しました');
+    }
+  };
+
+  // 全写真ZIP保存機能
+  const downloadAllPhotos = async () => {
+    if (photos.length === 0) {
+      alert('保存する写真がありません');
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      const JSZip = await loadJSZip();
       
-      csvContent += '店舗視察レポート\n';
-      csvContent += `店舗名,${storeName || '未設定'}\n`;
-      csvContent += `作成日時,${new Date().toLocaleString('ja-JP')}\n`;
-      csvContent += `写真枚数,${photos.length}\n`;
-      csvContent += '\n';
+      if (!JSZip) {
+        throw new Error('ZIP機能が利用できません');
+      }
 
-      categories.forEach(category => {
-        if (category.items.length > 0) {
-          csvContent += `${category.name}\n`;
-          csvContent += 'コメント,信頼度,記録時刻,写真\n';
-          
-          category.items.forEach(item => {
-            const escapedText = `"${item.text.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
-            const confidence = `${Math.round(item.confidence * 100)}%`;
-            const timestamp = item.timestamp;
-            const hasPhoto = item.isPhoto ? '有' : '無';
-            
-            csvContent += `${escapedText},${confidence},${timestamp},${hasPhoto}\n`;
-          });
-          csvContent += '\n';
-        }
+      const zip = new JSZip();
+      
+      photos.forEach((photo, index) => {
+        const base64Data = photo.base64.split(',')[1];
+        zip.file(`photo-${index + 1}-${photo.category || 'unknown'}.jpg`, base64Data, { base64: true });
       });
 
-      if (transcript.trim()) {
-        csvContent += '音声ログ\n';
-        const escapedTranscript = `"${transcript.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
-        csvContent += `${escapedTranscript}\n`;
-        csvContent += '\n';
-      }
-
-      if (insights.trim()) {
-        csvContent += 'AI分析結果\n';
-        const escapedInsights = `"${insights.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
-        csvContent += `${escapedInsights}\n`;
-      }
-
-      if (qaPairs.length > 0) {
-        csvContent += '\n質問応答履歴\n';
-        csvContent += '質問,回答,記録時刻\n';
-        
-        qaPairs.forEach(qa => {
-          const escapedQuestion = `"${qa.question.replace(/"/g, '""')}"`;
-          const escapedAnswer = `"${qa.answer.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
-          csvContent += `${escapedQuestion},${escapedAnswer},${qa.timestamp}\n`;
-        });
-      }
-
-      if (photos.length > 0) {
-        csvContent += '\n写真一覧\n';
-        csvContent += '撮影日時,カテゴリ,説明,信頼度\n';
-        
-        photos.forEach(photo => {
-          const escapedDesc = `"${photo.description.replace(/"/g, '""')}"`;
-          csvContent += `${photo.timestamp},${photo.category},${escapedDesc},${Math.round(photo.confidence * 100)}%\n`;
-        });
-      }
-
-      const blob = new Blob([csvContent], { 
-        type: 'text/csv;charset=utf-8' 
-      });
+      const content = await zip.generateAsync({ type: 'blob' });
       
       const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      
-      const fileName = `店舗視察_${storeName || '未設定'}_${new Date().toISOString().slice(0, 10)}.csv`;
-      link.setAttribute('download', fileName);
-      link.style.visibility = 'hidden';
-      
+      link.href = URL.createObjectURL(content);
+      link.download = `store-photos-${storeName || 'unknown'}-${new Date().toISOString().split('T')[0]}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       
-      URL.revokeObjectURL(url);
-
-      console.log('CSVエクスポート完了:', fileName);
-      alert('CSVファイルをエクスポートしました！Excelで開くことができます。');
-
+      URL.revokeObjectURL(link.href);
+      
     } catch (error) {
-      console.error('エクスポートエラー:', error);
-      alert('エクスポート中にエラーが発生しました');
+      console.error('ZIP保存エラー:', error);
+      alert('ZIP保存に失敗しました');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  // APIヘルスチェック
-  useEffect(() => {
-    const checkHealth = async () => {
-      const isHealthy = await checkApiHealth();
-      console.log('API状態:', isHealthy ? '正常' : '異常');
-    };
-    checkHealth();
-  }, []);
+  // データエクスポート機能
+  const exportData = () => {
+    try {
+      const exportData = {
+        storeName,
+        timestamp: new Date().toISOString(),
+        categories: categories,
+        insights,
+        qaPairs,
+        photos: photos.map(p => ({
+          ...p,
+          base64: p.base64.substring(0, 100) + '...[truncated]'
+        }))
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+        type: 'application/json'
+      });
+      
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `store-analysis-${storeName || 'data'}-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      console.error('エクスポートエラー:', error);
+      alert('データのエクスポートに失敗しました');
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="max-w-6xl mx-auto">
         {/* ヘッダー */}
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">店舗視察アプリ</h1>
-          <div className="flex items-center gap-4">
-            <input
-              type="text"
-              value={storeName}
-              onChange={(e) => setStoreName(e.target.value)}
-              placeholder="店舗名を入力"
-              className="px-4 py-2 border rounded-lg flex-grow"
-            />
-          </div>
-        </header>
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">
+            🏪 店舗視察アプリ
+          </h1>
+          <p className="text-gray-600 text-lg">
+            音声・写真で店舗情報を効率的に収集・分析
+          </p>
+        </div>
 
-        {/* 音声認識セクション */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Mic className="text-blue-600" />
-            音声メモ
-          </h2>
-          
-          {/* 音声認識コントロール */}
-          <div className="flex items-center gap-4 mb-4">
-            <button
-              onClick={toggleRecording}
-              disabled={isProcessing}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-                isRecording
-                  ? 'bg-red-600 hover:bg-red-700 text-white'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {isRecording ? (
-                <>
-                  <Square className="animate-pulse" />
-                  録音停止
-                </>
-              ) : (
-                <>
-                  <Mic />
-                  録音開始
-                </>
-              )}
-            </button>
+        {/* 店舗名入力 */}
+        <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            店舗名
+          </label>
+          <input
+            type="text"
+            value={storeName}
+            onChange={(e) => setStoreName(e.target.value)}
+            placeholder="例: セブンイレブン新宿店"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
 
-            {/* テキスト入力切り替え */}
-            <button
-              onClick={() => setShowTextInput(!showTextInput)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
-            >
-              <PenTool />
-              テキスト入力
-            </button>
-          </div>
+        {/* メイン機能エリア */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* 左側: 音声録音・テキスト入力 */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+            <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              🎤 音声・テキスト入力
+            </h2>
 
-          {/* テキスト入力エリア */}
-          {showTextInput && (
+            {/* 音声録音ボタン */}
             <div className="mb-4">
-              <textarea
-                value={textInput}
-                onChange={(e) => setTextInput(e.target.value)}
-                placeholder="テキストを入力..."
-                className="w-full h-32 px-4 py-2 border rounded-lg resize-none"
-              />
               <button
-                onClick={handleTextSubmit}
-                disabled={!textInput.trim() || isProcessing}
-                className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={toggleRecording}
+                disabled={isProcessing}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+                  isWebSpeechRecording
+                    ? 'bg-red-500 text-white hover:bg-red-600'
+                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                } disabled:opacity-50`}
               >
-                テキストを追加
+                {isWebSpeechRecording ? (
+                  <>
+                    <MicOff size={20} />
+                    録音停止
+                  </>
+                ) : (
+                  <>
+                    <Mic size={20} />
+                    音声録音開始
+                  </>
+                )}
+              </button>
+              {!isWebSpeechSupported && (
+                <p className="text-red-500 text-xs mt-2">
+                  お使いのブラウザは音声認識に対応していません
+                </p>
+              )}
+            </div>
+
+            {/* 音声ファイルアップロード */}
+            <div className="mb-4">
+              <label className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 transition-colors duration-200">
+                <Upload size={20} />
+                音声ファイルアップロード
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleAudioUpload}
+                  className="hidden"
+                  disabled={isProcessing}
+                />
+              </label>
+            </div>
+
+            {/* テキスト直接入力 */}
+            <div className="mb-4">
+              <button
+                onClick={() => setShowTextInput(!showTextInput)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200"
+              >
+                <MessageCircle size={20} />
+                テキスト直接入力
+              </button>
+              
+              {showTextInput && (
+                <div className="mt-3 space-y-2">
+                  <textarea
+                    value={textInput}
+                    onChange={(e) => setTextInput(e.target.value)}
+                    placeholder="ここに直接テキストを入力してください..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    rows="3"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addTextInput}
+                      className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                    >
+                      追加
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTextInput('');
+                        setShowTextInput(false);
+                      }}
+                      className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 認識されたテキスト表示 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                認識されたテキスト
+              </label>
+              <div className="min-h-[100px] p-3 border border-gray-300 rounded-lg bg-gray-50">
+                {transcript || (
+                  <span className="text-gray-400">
+                    音声録音またはテキスト入力でデータを追加してください
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 処理ボタン */}
+            <div className="flex gap-2">
+              <button
+                onClick={processTranscript}
+                disabled={!transcript.trim() || isProcessing}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 transition-colors duration-200"
+              >
+                <Brain size={20} />
+                {isProcessing ? '処理中...' : 'AI分類実行'}
+              </button>
+              
+              <button
+                onClick={() => setTranscript('')}
+                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200"
+              >
+                <Trash2 size={20} />
               </button>
             </div>
-          )}
+          </div>
 
-          {/* 文字起こし結果 */}
-          <div className="mb-4">
-            <h3 className="font-semibold mb-2">文字起こし結果:</h3>
-            <div className="bg-gray-50 p-4 rounded-lg whitespace-pre-wrap">
-              {transcript || '（ここに文字起こし結果が表示されます）'}
+          {/* 右側: 写真撮影 */}
+          <PhotoCapture
+            onPhotoAdded={capturePhoto}
+            categories={categories}
+            setCategories={setCategories}
+            isProcessing={isAnalyzing || isProcessing}
+            storeName={storeName}
+            photos={photos}
+            setPhotos={setPhotos}
+            downloadPhoto={downloadPhoto}
+            downloadAllPhotos={downloadAllPhotos}
+          />
+        </div>
+
+        {/* 写真撮影フローティングボタン */}
+        <div className="fixed bottom-4 left-4 z-50">
+          <button
+            onClick={capturePhoto}
+            disabled={isAnalyzing || isProcessing}
+            className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center text-white transition-all duration-200 ${
+              isAnalyzing || isProcessing
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-red-500 hover:bg-red-600 hover:scale-110'
+            }`}
+            title="写真撮影"
+          >
+            {isAnalyzing ? (
+              <div className="animate-spin">⟳</div>
+            ) : (
+              <Camera size={28} />
+            )}
+          </button>
+        </div>
+
+        {/* インサイト・Q&Aセクション */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* インサイト生成 */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+                💡 AIインサイト
+              </h3>
+              <button
+                onClick={generateInsights}
+                disabled={isProcessing}
+                className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors duration-200"
+              >
+                <Brain size={16} />
+                {isProcessing ? '生成中...' : '生成'}
+              </button>
+            </div>
+            
+            <div className="min-h-[150px] p-4 border border-gray-300 rounded-lg bg-gray-50">
+              {insights || (
+                <span className="text-gray-400">
+                  AIがデータを分析してインサイトを生成します
+                </span>
+              )}
             </div>
           </div>
-        </div>
 
-        {/* カテゴリ一覧 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {categories.map((category) => (
-            <div key={category.name} className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-lg font-semibold mb-4">{category.name}</h3>
-              <ul className="space-y-2">
-                {category.items.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex items-start gap-2 p-2 bg-gray-50 rounded"
-                  >
-                    <span className="flex-grow">{item.text}</span>
-                    {item.confidence && (
-                      <span className="text-sm text-gray-500">
-                        {Math.round(item.confidence * 100)}%
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        {/* 写真一覧 */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Camera className="text-blue-600" />
-            写真一覧
-          </h2>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {photos.map((photo) => (
-              <div key={photo.id} className="bg-gray-50 rounded-lg p-4">
-                <img
-                  src={photo.base64}
-                  alt={photo.description}
-                  className="w-full h-48 object-cover rounded-lg mb-2"
+          {/* Q&A機能 */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              ❓ Q&A
+            </h3>
+            
+            <div className="mb-4">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={questionInput}
+                  onChange={(e) => setQuestionInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleQuestionSubmit()}
+                  placeholder="質問を入力してください..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={isAnswering}
                 />
-                <div className="text-sm">
-                  <p className="font-semibold">{photo.category}</p>
-                  <p className="text-gray-600">{photo.description}</p>
-                  <p className="text-gray-500">{photo.timestamp}</p>
-                </div>
                 <button
-                  onClick={() => downloadPhoto(photo)}
-                  className="mt-2 w-full px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded"
+                  onClick={handleQuestionSubmit}
+                  disabled={!questionInput.trim() || isAnswering}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors duration-200"
                 >
-                  ダウンロード
+                  <HelpCircle size={20} />
                 </button>
               </div>
-            ))}
-          </div>
-          
-          {photos.length > 0 && (
-            <button
-              onClick={downloadAllPhotos}
-              className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2"
-            >
-              <Download />
-              全ての写真をダウンロード
-            </button>
-          )}
-        </div>
-      </div>
+            </div>
 
-      {/* カメラボタン */}
-      <div className="fixed bottom-6 left-6 z-50">
-        <button
-          onClick={() => {
-            capturePhoto().catch(error => {
-              console.error('📸 ボタンクリックエラー:', error);
-              alert(`写真撮影でエラーが発生しました: ${error.message || '不明なエラー'}`);
-            });
-          }}
-          disabled={isAnalyzing || isProcessing}
-          className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
-            isAnalyzing 
-              ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
-              : 'bg-red-100 hover:bg-red-200 hover:scale-110 border-red-700'
-          } ${isProcessing || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''} text-red-900`}
-          title={isAnalyzing ? 'AI解析中...' : '写真撮影'}
-        >
-          {isAnalyzing ? <Camera size={24} className="animate-pulse" /> : <Camera size={24} />}
-        </button>
+            <div className="max-h-[200px] overflow-y-auto space-y-3">
+              {qaPairs.map((qa, index) => (
+                <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                  <div className="font-medium text-gray-700 mb-1">
+                    Q: {qa.question}
+                  </div>
+                  <div className="text-gray-600 text-sm mb-1">
+                    A: {qa.answer}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {qa.timestamp}
+                  </div>
+                </div>
+              ))}
+              {qaPairs.length === 0 && (
+                <div className="text-center text-gray-400 py-4">
+                  質問を入力してAIに聞いてみましょう
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 操作ボタン群 */}
+        <div className="flex flex-wrap gap-3 mb-8 justify-center">
+          <button
+            onClick={exportData}
+            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200"
+          >
+            <Download size={20} />
+            データエクスポート
+          </button>
+          
+          <button
+            onClick={clearAllData}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200"
+          >
+            <Trash2 size={20} />
+            全データ削除
+          </button>
+        </div>
+
+        {/* 分類結果表示 */}
+        <ClassificationSection categories={categories} />
       </div>
     </div>
   );
