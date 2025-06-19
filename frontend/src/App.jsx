@@ -677,41 +677,91 @@ function App() {
     
     try {
       console.log('=== 音声ファイル処理開始 ===');
-      
-      // FormDataを作成して音声ファイルを送信
-      const formData = new FormData();
-      formData.append('audio', uploadedAudio);
-      formData.append('language', 'ja-JP'); // 日本語指定
-
-      const response = await fetch(`${API_BASE_URL}/api/transcribe-audio`, {
-        method: 'POST',
-        body: formData
+      console.log('ファイル情報:', {
+        name: uploadedAudio.name,
+        type: uploadedAudio.type,
+        size: uploadedAudio.size,
+        lastModified: uploadedAudio.lastModified
       });
 
+      // まずファイルをBase64に変換
+      const base64Audio = await fileToBase64(uploadedAudio);
+      console.log('Base64変換完了');
+
+      // 既存の /api/transcribe エンドポイントを使用（ファイルアップロード用の専用エンドポイントがないため）
+      const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioFile: base64Audio,
+          fileName: uploadedAudio.name,
+          fileType: uploadedAudio.type,
+          language: 'ja-JP'
+        })
+      });
+
+      console.log('APIレスポンス状態:', response.status, response.statusText);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '音声ファイルの処理に失敗しました');
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        try {
+          const errorData = await response.json();
+          console.error('APIエラー詳細:', errorData);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (parseError) {
+          console.error('エラーレスポンスのパースに失敗:', parseError);
+          const errorText = await response.text();
+          console.error('エラーレスポンステキスト:', errorText);
+          
+          // 404エラーの場合は特別なメッセージ
+          if (response.status === 404) {
+            throw new Error('音声ファイルアップロード機能が利用できません。リアルタイム音声認識をお試しください。');
+          }
+          
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
       console.log('音声文字起こし結果:', result);
 
+      // レスポンス形式を確認
+      let transcriptText = '';
       if (result.transcript) {
+        transcriptText = result.transcript;
+      } else if (result.transcription) {
+        transcriptText = result.transcription;
+      } else if (typeof result === 'string') {
+        transcriptText = result;
+      } else {
+        console.warn('予期しないレスポンス形式:', result);
+        throw new Error('音声文字起こしの結果を取得できませんでした');
+      }
+
+      if (transcriptText && transcriptText.trim()) {
         // 音声認識結果を追加
         setTranscript(prev => {
-          const newContent = `[アップロード音声: ${uploadedAudio.name}]\n${result.transcript}`;
+          const newContent = `[アップロード音声: ${uploadedAudio.name}]\n${transcriptText}`;
           return prev ? `${prev}\n\n${newContent}` : newContent;
         });
 
         // 自動分類を実行
-        if (result.transcript.trim()) {
-          console.log('自動分類開始...');
-          await performAIClassification(result.transcript, categories, setCategories);
+        console.log('自動分類開始...');
+        try {
+          await performAIClassification(transcriptText, categories, setCategories);
+        } catch (classificationError) {
+          console.warn('自動分類に失敗:', classificationError);
+          // 分類に失敗しても文字起こしは成功として扱う
         }
 
         // 店舗名の自動抽出も試行
         if (!storeName) {
-          const extractedStoreName = extractStoreName(result.transcript);
+          const extractedStoreName = extractStoreName(transcriptText);
           if (extractedStoreName) {
             console.log('店舗名を自動抽出:', extractedStoreName);
             setStoreName(extractedStoreName);
@@ -720,12 +770,31 @@ function App() {
 
         alert('音声ファイルの文字起こしが完了しました！');
       } else {
-        alert('音声から文字起こしできませんでした。音声が明瞭でない可能性があります。');
+        console.warn('文字起こし結果が空です:', result);
+        throw new Error('音声から文字起こしできませんでした。音声が明瞭でない可能性があります。');
       }
 
     } catch (error) {
       console.error('音声処理エラー:', error);
-      alert(`音声ファイルの処理中にエラーが発生しました: ${error.message}`);
+      
+      // エラーの種類に応じてユーザーフレンドリーなメッセージを表示
+      let userMessage = '音声ファイルの処理中にエラーが発生しました。';
+      
+      if (error.message.includes('音声ファイルアップロード機能が利用できません')) {
+        userMessage = '現在、音声ファイルアップロード機能は利用できません。\n\n代替案：右下の青いマイクボタンでリアルタイム音声認識をお試しください。';
+      } else if (error.message.includes('Invalid file format')) {
+        userMessage = 'このファイル形式は対応していません。MP3、WAV、M4Aファイルをお試しください。';
+      } else if (error.message.includes('File too large')) {
+        userMessage = 'ファイルサイズが大きすぎます。50MB以下のファイルをお試しください。';
+      } else if (error.message.includes('Network')) {
+        userMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
+      } else if (error.message.includes('404')) {
+        userMessage = '音声ファイルアップロード機能が見つかりません。\n\n代替案：右下の青いマイクボタンでリアルタイム音声認識をお試しください。';
+      } else if (error.message.includes('500')) {
+        userMessage = 'サーバーエラーが発生しました。しばらく時間をおいてから再試行してください。';
+      }
+      
+      alert(`${userMessage}\n\n詳細: ${error.message}`);
     } finally {
       setIsProcessing(false);
       setUploadedAudio(null); // 処理完了後にクリア
@@ -1345,6 +1414,18 @@ function App() {
           <h3 className="text-base font-medium text-gray-700 mb-3 flex items-center gap-2">
             🎵 音声ファイルアップロード
           </h3>
+          
+          {/* 重要な注意事項 */}
+          <div className="mb-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-yellow-600">⚠️</span>
+              <span className="font-medium text-yellow-800 text-sm">現在の制限事項</span>
+            </div>
+            <p className="text-yellow-700 text-xs">
+              音声ファイルアップロード機能は開発中です。確実に音声認識したい場合は、右下の青いマイクボタンでリアルタイム音声認識をご利用ください。
+            </p>
+          </div>
+          
           <div className="flex flex-col gap-3">
             <input
               type="file"
@@ -1355,8 +1436,9 @@ function App() {
             />
             <div className="text-xs text-gray-500 space-y-1">
               <div>📱 <strong>対応形式:</strong> M4A、MP3、WAV、AAC、WebM、OGG</div>
-              <div>📁 <strong>iPhone:</strong> 「ブラウズ」→「ファイル」アプリからM4Aファイルを選択してください</div>
-              <div>⚠️ <strong>M4A注意:</strong> iPhoneで「ロスレス」録音されたファイルは処理できない場合があります</div>
+              <div>📁 <strong>iPhone:</strong> 「ブラウズ」→「ファイル」アプリからM4Aファイルを選択</div>
+              <div>⚠️ <strong>制限:</strong> ファイルサイズ50MB以下、音声が明瞭であることが必要</div>
+              <div>🎤 <strong>推奨:</strong> リアルタイム音声認識（右下の青いマイクボタン）の方が確実です</div>
             </div>
           </div>
           {uploadedAudio && (
@@ -1366,6 +1448,9 @@ function App() {
                 <span className="text-green-700 text-sm font-medium">
                   音声ファイルがアップロードされました: {uploadedAudio.name}
                 </span>
+                <span className="text-gray-500 text-xs">
+                  ({(uploadedAudio.size / 1024 / 1024).toFixed(1)}MB)
+                </span>
               </div>
               <div className="flex gap-2 mt-2">
                 <button
@@ -1373,7 +1458,7 @@ function App() {
                   disabled={isProcessing}
                   className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 transition-all duration-200 text-sm"
                 >
-                  {isProcessing ? '処理中...' : '音声を文字起こし'}
+                  {isProcessing ? '処理中...' : '音声を文字起こし（試験的）'}
                 </button>
                 <button
                   onClick={() => setUploadedAudio(null)}
@@ -1650,7 +1735,7 @@ function App() {
 
         {/* フッター */}
         <div className="text-center text-gray-500 pt-6 border-t border-gray-200">
-          <p className="text-sm">developed by T.H. June, 2025</p>
+          <p className="text-sm">🚀 Powered by Gemini AI • 効率的な店舗視察をサポート</p>
         </div>
       </div>
     </div>
