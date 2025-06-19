@@ -3,7 +3,7 @@ import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download
 
 // APIエンドポイントの設定
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://store-visit-7cux.onrender.com'
+  ? 'https://planner-backend-ee00.onrender.com'  // ← 新しいURL
   : 'http://localhost:3001';
 
 // ユーティリティ関数
