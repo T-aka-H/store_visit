@@ -39,7 +39,10 @@ const performAIClassification = async (text, categories, setCategories) => {
         'Accept': 'application/json',
         'Access-Control-Request-Headers': 'content-type'
       },
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ 
+        text,
+        categories: categories.map(cat => ({ name: cat.name }))
+      })
     });
 
     if (!response.ok) {
@@ -48,20 +51,30 @@ const performAIClassification = async (text, categories, setCategories) => {
 
     const result = await response.json();
     
-    if (result.csv_format) {
-      const newCategories = convertCsvToCategories(result.csv_format);
+    if (result.classifications) {
       setCategories(prevCategories => 
         prevCategories.map(cat => {
-          const newCat = newCategories.find(nc => nc.name === cat.name);
+          const newItems = result.classifications
+            .filter(c => c.category === cat.name)
+            .map(c => ({
+              id: Date.now() + Math.random(),
+              text: c.text,
+              confidence: c.confidence || 0.8,
+              reason: c.reason,
+              timestamp: new Date().toLocaleTimeString(),
+              isPhoto: false
+            }));
+          
           return {
             ...cat,
-            items: newCat ? [...cat.items, ...newCat.items] : cat.items
+            items: [...cat.items, ...newItems]
           };
         })
       );
+      console.log('分類完了:', result);
+    } else {
+      throw new Error('分類結果が不正な形式です');
     }
-    
-    console.log('分類完了:', result);
   } catch (error) {
     console.error('AI分類エラー (CORS):', error);
     
