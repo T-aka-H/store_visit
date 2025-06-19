@@ -15,7 +15,16 @@ const PORT = process.env.PORT || 3001;
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ミドルウェア
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://store-visit-cr9p.onrender.com',  // フロントエンドURL
+    'http://localhost:3000',                   // 開発環境
+    'http://localhost:3001'                    // 開発環境
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '50mb' }));  // 写真アップロード用に制限を緩和
 app.use(express.static('public'));
 

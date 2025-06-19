@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin } from 'lucide-react';
 
-// APIエンドポイントの設定
+// 現在のURL設定を確認・修正
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://planner-backend-ee00.onrender.com'  // ← 新しいURL
+  ? 'https://planner-backend-ee00.onrender.com'
   : 'http://localhost:3001';
+
+console.log('API_BASE_URL:', API_BASE_URL); // デバッグ用
 
 // ユーティリティ関数
 const formatFileSize = (bytes) => {
