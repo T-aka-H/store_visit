@@ -1229,27 +1229,35 @@ function App() {
           </div>
         </div>
 
-        {/* 操作ボタン群 */}
-        <div className="flex flex-wrap gap-3 mb-8 justify-center">
+        {/* 分類結果表示 */}
+        <ClassificationSection categories={categories} />
+
+        {/* データ操作ボタン */}
+        <div className="flex justify-center gap-4 mt-8 mb-4">
           <button
             onClick={exportData}
-            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200"
+            disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
+            className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 shadow-md"
+            title="視察データをエクスポート"
           >
             <Download size={20} />
-            データエクスポート
+            <span>エクスポート</span>
           </button>
           
           <button
-            onClick={clearAllData}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200"
+            onClick={() => {
+              if (window.confirm('本当にすべてのデータをクリアしますか？この操作は元に戻せません。')) {
+                clearAllData();
+              }
+            }}
+            disabled={isProcessing || isWebSpeechRecording}
+            className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 shadow-md"
+            title="すべてのデータを削除"
           >
             <Trash2 size={20} />
-            全データ削除
+            <span>データクリア</span>
           </button>
         </div>
-
-        {/* 分類結果表示 */}
-        <ClassificationSection categories={categories} />
       </div>
 
       {/* カメラボタン */}
@@ -1274,7 +1282,7 @@ function App() {
       </div>
 
       {/* マイクボタン */}
-      <div className="fixed bottom-6 right-24 z-50">
+      <div className="fixed bottom-6 right-6 z-50">
         {isWebSpeechSupported ? (
           <button
             onClick={toggleRecording}
@@ -1293,35 +1301,6 @@ function App() {
             <HelpCircle size={24} />
           </div>
         )}
-      </div>
-
-      {/* データ操作セクション */}
-      <div className="fixed bottom-6 right-6 z-50 flex gap-2">
-        {/* Excel出力 */}
-        <button
-          onClick={exportData}
-          disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50"
-          title="視察データをエクスポート"
-        >
-          <Download size={20} />
-          <span>エクスポート</span>
-        </button>
-        
-        {/* データクリア */}
-        <button
-          onClick={() => {
-            if (window.confirm('本当にすべてのデータをクリアしますか？この操作は元に戻せません。')) {
-              clearAllData();
-            }
-          }}
-          disabled={isProcessing || isWebSpeechRecording}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50"
-          title="すべてのデータを削除"
-        >
-          <Trash2 size={20} />
-          <span>データクリア</span>
-        </button>
       </div>
     </div>
   );
