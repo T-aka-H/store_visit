@@ -3,7 +3,7 @@ import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download
 
 // 現在のURL設定を確認・修正
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://planner-backend-ee00.onrender.com'
+  ? 'https://store-visit-7cux.onrender.com'  // 正しいバックエンドURL
   : 'http://localhost:3001';
 
 console.log('API_BASE_URL:', API_BASE_URL); // デバッグ用
@@ -675,49 +675,6 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
     }
   };
 
-  const processWebSpeechResult = async (transcriptText) => {
-    console.log('=== Web Speech 結果処理開始 ===');
-    setIsProcessing(true);
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: transcriptText })
-      });
-
-      if (!response.ok) throw new Error('音声認識処理に失敗しました');
-      
-      const result = await response.json();
-      processClassificationResult(result);
-      
-      setTranscript(prev => {
-        const lines = prev.split('\n\n');
-        const lastLine = lines[lines.length - 1];
-        if (lastLine.startsWith('[録音中]')) {
-          lines[lines.length - 1] = transcriptText;
-        } else {
-          lines.push(transcriptText);
-        }
-        return lines.join('\n\n');
-      });
-
-      if (!storeName) {
-        const extractedStoreName = extractStoreName(transcriptText);
-        if (extractedStoreName) {
-          console.log('店舗名を自動抽出:', extractedStoreName);
-          setStoreName(extractedStoreName);
-        }
-      }
-
-    } catch (error) {
-      console.error('Web Speech 結果処理エラー:', error);
-      alert('音声認識結果の処理中にエラーが発生しました: ' + error.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   // 店舗名抽出関数
   const extractStoreName = (text) => {
     console.log('店舗名抽出開始:', text);
@@ -748,6 +705,43 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
     
     console.log('店舗名抽出失敗');
     return null;
+  };
+
+  // 音声認識結果の処理
+  const processWebSpeechResult = async (transcriptText) => {
+    console.log('=== Web Speech 結果処理開始 ===');
+    setIsProcessing(true);
+    
+    try {
+      // 音声認識結果をトランスクリプトに追加するだけ
+      setTranscript(prev => {
+        const lines = prev.split('\n\n');
+        const lastLine = lines[lines.length - 1];
+        if (lastLine.startsWith('[録音中]')) {
+          lines[lines.length - 1] = transcriptText;
+        } else {
+          lines.push(transcriptText);
+        }
+        return lines.join('\n\n');
+      });
+
+      // 店舗名の自動抽出のみ実行
+      if (!storeName) {
+        const extractedStoreName = extractStoreName(transcriptText);
+        if (extractedStoreName) {
+          console.log('店舗名を自動抽出:', extractedStoreName);
+          setStoreName(extractedStoreName);
+        }
+      }
+
+      console.log('✅ 音声認識完了（分類は手動で実行してください）');
+
+    } catch (error) {
+      console.error('Web Speech 結果処理エラー:', error);
+      alert('音声認識結果の処理中にエラーが発生しました: ' + error.message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // 音声ファイルアップロード処理
@@ -804,9 +798,14 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
     setIsProcessing(true);
     
     try {
+      // トランスクリプトに追加
       setTranscript(prev => prev + textInput + '\n\n');
+      
+      // AI分類を実行
+      await performAIClassification(textInput, categories, setCategories);
+      
       setTextInput('');
-      alert('テキストが追加されました！');
+      alert('テキストが追加され、分類が完了しました！');
       
     } catch (error) {
       console.error('テキスト処理エラー:', error);
@@ -1392,6 +1391,31 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
             <span className="text-sm font-medium">
               {isProcessing ? '分類中...' : '音声認識結果を分類'}
             </span>
+          </button>
+
+          {/* 分類ボタン */}
+          <button
+            onClick={async () => {
+              if (!transcript.trim()) {
+                alert('分類するテキストがありません。');
+                return;
+              }
+              setIsProcessing(true);
+              try {
+                await performAIClassification(transcript, categories, setCategories);
+                alert('分類が完了しました！');
+              } catch (error) {
+                console.error('分類エラー:', error);
+                alert('分類中にエラーが発生しました: ' + error.message);
+              } finally {
+                setIsProcessing(false);
+              }
+            }}
+            disabled={isProcessing || !transcript.trim()}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Brain size={20} />
+            テキストを分類
           </button>
         </div>
 
