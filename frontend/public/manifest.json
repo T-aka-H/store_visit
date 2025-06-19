@@ -1,0 +1,17 @@
+{
+    "short_name": "店舗視察AI",
+    "name": "店舗視察AI - 音声認識・写真撮影による効率的な店舗分析",
+    "description": "AIを活用した店舗視察支援アプリケーション",
+    "icons": [
+      {
+        "src": "favicon.ico",
+        "sizes": "64x64 32x32 24x24 16x16",
+        "type": "image/x-icon"
+      }
+    ],
+    "start_url": "/",
+    "display": "standalone",
+    "theme_color": "#4B7688",
+    "background_color": "#f9fafb",
+    "orientation": "portrait-primary"
+  }

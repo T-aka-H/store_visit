@@ -1076,6 +1076,36 @@ app.post('/api/transcribe-audio-gemini', upload.single('audio'), async (req, res
   }
 });
 
+// テキスト分類エンドポイント
+app.post('/api/classify', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'テキストが必要です' });
+    }
+
+    // Gemini AIモデルを使用してテキストを分類
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const prompt = SPEECH_CLASSIFICATION_PROMPT + text;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const classifications = JSON.parse(response.text());
+
+    // CSV形式に変換
+    const csvFormat = convertToCSVFormat(classifications.classifications);
+    
+    res.json({
+      classifications: classifications.classifications,
+      csv_format: csvFormat
+    });
+
+  } catch (error) {
+    console.error('分類エラー:', error);
+    res.status(500).json({ error: '分類処理中にエラーが発生しました' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Gemini API Key configured: ${!!process.env.GEMINI_API_KEY}`);

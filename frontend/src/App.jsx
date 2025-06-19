@@ -1437,11 +1437,6 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
             <p className="text-blue-700 text-xs mb-2">
               アップロードされた音声ファイルは、Gemini 1.5 Flash AIモデルで高精度な文字起こしを行います。
             </p>
-            <div className="bg-yellow-50 p-2 rounded border border-yellow-200">
-              <p className="text-yellow-700 text-xs">
-                <strong>⚠️ バックエンド実装が必要:</strong> 現在 `/api/transcribe-audio-gemini` エンドポイントの実装待ちです。
-              </p>
-            </div>
           </div>
           
           <div className="flex flex-col gap-3">
