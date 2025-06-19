@@ -970,6 +970,103 @@ app.post('/api/photos/download-multiple', (req, res) => {
   }
 });
 
+// Gemini 1.5 Flash専用音声認識API（音声ファイルアップロード用）
+app.post('/api/transcribe-audio-gemini', upload.single('audio'), async (req, res) => {
+  try {
+    console.log('=== Gemini音声ファイル認識開始 ===');
+    
+    if (!req.file) {
+      return res.status(400).json({ error: '音声ファイルが必要です' });
+    }
+
+    console.log('アップロードファイル情報:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ 
+        error: 'Gemini APIキーが設定されていません' 
+      });
+    }
+
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const base64Audio = bufferToBase64(req.file.buffer);
+
+      const prompt = `この音声ファイルを正確に日本語のテキストに変換してください。
+      
+音声の内容は店舗視察に関するものです。以下の点に注意して文字起こしを行ってください：
+
+1. 店舗名、ブランド名は正確に
+2. 価格情報（○○円など）は数字を含めて正確に
+3. 商品名、カテゴリ名は具体的に
+4. 話し手の感想や評価も含める
+5. 聞き取りにくい部分は [不明瞭] と記載
+
+文字起こししたテキストのみを返してください。`;
+
+      const result = await model.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: req.file.mimetype,
+            data: base64Audio
+          }
+        }
+      ]);
+
+      const response = await result.response;
+      const transcribedText = response.text().trim();
+
+      console.log('Gemini音声認識結果:', transcribedText);
+
+      if (!transcribedText || transcribedText.length < 3) {
+        return res.status(400).json({
+          error: '音声から文字起こしできませんでした',
+          details: '音声が不明瞭、または対応していない形式の可能性があります'
+        });
+      }
+
+      res.json({
+        transcript: transcribedText,
+        source: 'gemini-1.5-flash',
+        fileInfo: {
+          name: req.file.originalname,
+          size: req.file.size,
+          type: req.file.mimetype
+        },
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (geminiError) {
+      console.error('Gemini音声認識エラー:', geminiError);
+      
+      let errorMessage = 'Gemini音声認識に失敗しました';
+      if (geminiError.message.includes('quota')) {
+        errorMessage = 'Gemini APIの利用制限に達しました';
+      } else if (geminiError.message.includes('invalid')) {
+        errorMessage = '音声ファイル形式がサポートされていません';
+      }
+      
+      res.status(500).json({
+        error: errorMessage,
+        details: geminiError.message
+      });
+    }
+
+  } catch (error) {
+    console.error('=== 音声ファイル処理エラー ===');
+    console.error('エラー:', error);
+    
+    res.status(500).json({
+      error: '音声ファイル処理エラー',
+      details: error.message
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Gemini API Key configured: ${!!process.env.GEMINI_API_KEY}`);
