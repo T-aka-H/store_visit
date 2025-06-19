@@ -176,41 +176,164 @@ const PhotoCapture = ({
   setPhotos, 
   downloadPhoto 
 }) => {
-  if (photos.length === 0) return null;
-
   return (
     <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
       <h3 className="text-base font-medium text-gray-700 mb-3 flex items-center gap-2">
-        📸 撮影済み写真
+        📸 写真撮影・管理
         <span className="bg-red-100 text-red-700 text-xs px-2 py-1 rounded-full">
           {photos.length}枚
         </span>
+        {isProcessing && (
+          <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full animate-pulse">
+            AI解析中
+          </span>
+        )}
       </h3>
       
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {photos.map((photo, index) => (
-          <div key={photo.id || index} className="relative group">
-            <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
-              <img
-                src={photo.base64}
-                alt={`撮影写真 ${index + 1}`}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 rounded-lg flex items-center justify-center">
-              <button
-                onClick={() => downloadPhoto(photo)}
-                className="opacity-0 group-hover:opacity-100 bg-white text-gray-700 px-2 py-1 rounded text-xs font-medium transition-all duration-200"
-              >
-                ダウンロード
-              </button>
-            </div>
-            <div className="mt-1 text-xs text-gray-500 text-center truncate">
-              {photo.category}
-            </div>
-          </div>
-        ))}
+      {/* 写真撮影の説明 */}
+      <div className="mb-4 p-3 bg-red-50 rounded-lg border border-red-200">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-red-600">📱</span>
+          <span className="font-medium text-red-800 text-sm">写真撮影機能</span>
+        </div>
+        <p className="text-red-700 text-xs mb-2">
+          左下の赤いカメラボタンで写真撮影が可能です。AIが自動で内容を分析・分類します。
+        </p>
+        <div className="text-xs text-red-600 space-y-1">
+          <div>📷 <strong>撮影:</strong> 左下の赤いカメラボタンをタップ</div>
+          <div>🤖 <strong>AI解析:</strong> 撮影後、自動でカテゴリ分類・説明文生成</div>
+          <div>💾 <strong>保存:</strong> 個別ダウンロード・一括ZIP保存対応</div>
+          <div>🏷️ <strong>自動分類:</strong> 店舗環境、商品、価格等を自動判定</div>
+        </div>
       </div>
+
+      {/* 撮影済み写真の表示 */}
+      {photos.length > 0 ? (
+        <>
+          <h4 className="text-sm font-medium text-gray-600 mb-3 flex items-center gap-2">
+            撮影済み写真一覧
+            <button
+              onClick={() => {
+                if (photos.length > 0 && window.confirm(`${photos.length}枚の写真をすべて削除しますか？`)) {
+                  setPhotos([]);
+                }
+              }}
+              className="text-xs text-red-600 hover:text-red-800 ml-2"
+            >
+              🗑️ 全削除
+            </button>
+          </h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            {photos.map((photo, index) => (
+              <div key={photo.id || index} className="relative group">
+                <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden border">
+                  <img
+                    src={photo.base64}
+                    alt={`撮影写真 ${index + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all duration-200 rounded-lg flex items-center justify-center">
+                  <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                    <button
+                      onClick={() => downloadPhoto(photo)}
+                      className="bg-white text-gray-700 px-2 py-1 rounded text-xs font-medium transition-all duration-200 hover:bg-gray-100"
+                      title="この写真をダウンロード"
+                    >
+                      📥
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('この写真を削除しますか？')) {
+                          setPhotos(prev => prev.filter(p => p.id !== photo.id));
+                        }
+                      }}
+                      className="bg-red-500 text-white px-2 py-1 rounded text-xs font-medium transition-all duration-200 hover:bg-red-600"
+                      title="この写真を削除"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+                
+                {/* 写真の詳細情報 */}
+                <div className="mt-1 text-xs">
+                  <div className="text-gray-500 text-center truncate font-medium">
+                    {photo.category || '未分類'}
+                  </div>
+                  {photo.confidence && (
+                    <div className="text-center mt-1">
+                      <span className={`inline-flex px-1 py-0.5 rounded text-xs ${
+                        photo.confidence >= 0.8 ? 'bg-green-100 text-green-700' :
+                        photo.confidence >= 0.6 ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        AI信頼度: {Math.round(photo.confidence * 100)}%
+                      </span>
+                    </div>
+                  )}
+                  {photo.description && (
+                    <div className="text-gray-400 text-center mt-1 truncate">
+                      {photo.description}
+                    </div>
+                  )}
+                  <div className="text-gray-400 text-center mt-1">
+                    {photo.timestamp}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* 写真関連の操作ボタン */}
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => {
+                if (typeof downloadAllPhotos === 'function') {
+                  downloadAllPhotos();
+                }
+              }}
+              disabled={isProcessing}
+              className="flex items-center gap-1 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 text-sm"
+            >
+              📦 ZIP保存
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-8 text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
+          <Camera size={48} className="mx-auto mb-3 text-gray-300" />
+          <p className="text-sm font-medium text-gray-500 mb-1">
+            まだ写真が撮影されていません
+          </p>
+          <p className="text-xs text-gray-400 mb-3">
+            左下の赤いカメラボタンで撮影を開始してください
+          </p>
+          <div className="bg-gray-50 rounded-lg p-3 mx-8">
+            <p className="text-xs text-gray-500">
+              <strong>💡 撮影のコツ:</strong><br/>
+              商品、価格表示、店内環境など、<br/>
+              視察に必要な要素を撮影すると<br/>
+              AIが自動で分類・分析します
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 分類セクションコンポーネント
+const ClassificationSection = ({ categories }) => {
+  return (
+    <div className="mt-8">
+      {categories.map(category => (
+        <ClassificationTable
+          key={category.name}
+          category={category.name}
+          items={category.items}
+        />
+      ))}
     </div>
   );
 };
@@ -1408,16 +1531,7 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
           </div>
         </div>
 
-        {/* 分類結果の表示（テーブル形式） */}
-        <div className="mt-8">
-          {categories.map(category => (
-            <ClassificationTable
-              key={category.name}
-              category={category.name}
-              items={category.items}
-            />
-          ))}
-        </div>
+        <ClassificationSection categories={categories} />
 
         {/* AIインサイト生成 */}
         {(categories.some(cat => cat.items.length > 0) || transcript || photos.length > 0) && (
