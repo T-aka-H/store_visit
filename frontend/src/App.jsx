@@ -69,11 +69,18 @@ const formatFileSize = (bytes) => {
 };
 
 // 写真機能コンポーネント
-const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, storeName }) => {
-  const [photos, setPhotos] = useState([]);
+const PhotoCapture = ({ 
+  onPhotoAdded, 
+  categories, 
+  setCategories, 
+  isProcessing, 
+  storeName,
+  photos,
+  setPhotos
+}) => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
 
-  // 写真削除
+  // removePhoto関数
   const removePhoto = (photoId) => {
     setPhotos(prev => prev.filter(photo => photo.id !== photoId));
     
@@ -85,10 +92,10 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
     });
   };
 
-  // 個別写真ダウンロード関数
+  // downloadPhoto関数
   const downloadPhoto = async (photo) => {
     try {
-      // バックエンドAPIを試す
+      const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
       const response = await fetch(`${API_BASE_URL}/api/photos/${photo.id}/download`, {
         method: 'GET',
       });
@@ -132,7 +139,7 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
     }
   };
 
-  // 全写真一括ダウンロード関数
+  // downloadAllPhotos関数（写真のみ）
   const downloadAllPhotos = async () => {
     if (photos.length === 0) {
       alert('ダウンロード可能な写真がありません');
@@ -140,9 +147,9 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
     }
 
     try {
-      const JSZip = window.JSZip;
-      if (JSZip) {
-        const zip = new JSZip();
+      // JSZipがwindowオブジェクトに存在するかチェック
+      if (window.JSZip) {
+        const zip = new window.JSZip();
         
         // 写真のみZIPに追加
         photos.forEach((photo, index) => {
@@ -201,6 +208,8 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
             document.body.removeChild(link);
           }, index * 500);
         });
+        
+        alert('JSZipが利用できないため、写真を個別にダウンロードします');
       }
     } catch (error) {
       console.error('一括ダウンロードエラー:', error);
@@ -210,6 +219,7 @@ const PhotoCapture = ({ onPhotoAdded, categories, setCategories, isProcessing, s
 
   return (
     <div className="mb-6">
+      {/* ヘッダーの一括ダウンロードボタンも iPhone 向けに調整 */}
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
           📸 視察写真
@@ -1201,6 +1211,8 @@ function App() {
           setCategories={setCategories}
           isProcessing={isProcessing}
           storeName={storeName}
+          photos={photos}
+          setPhotos={setPhotos}
         />
 
         {/* コントロールボタン */}
