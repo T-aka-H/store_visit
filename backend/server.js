@@ -530,9 +530,9 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 });
 
 // AI文脈理解による分類API
-app.post('/api/classify-context', async (req, res) => {
+app.post('/api/classify', async (req, res) => {
   try {
-    console.log('=== AI文脈分類リクエスト受信 ===');
+    console.log('=== AI分類リクエスト受信 ===');
     const { text, categories } = req.body;
 
     if (!text || !text.trim()) {
@@ -541,13 +541,12 @@ app.post('/api/classify-context', async (req, res) => {
 
     let classifications = [];
     
-    // Gemini APIを優先的に使用
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const categoriesText = categories.map(cat => cat.name).join(', ');
+    // Gemini 1.5 Flash APIを使用
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const categoriesText = categories.map(cat => cat.name).join(', ');
 
-        const prompt = `あなたは店舗視察データの分析エキスパートです。以下のテキストから複数の情報要素を抽出し、それぞれを適切なカテゴリに分類してください。
+      const prompt = `あなたは店舗視察データの分析エキスパートです。以下のテキストから複数の情報要素を抽出し、それぞれを適切なカテゴリに分類してください。
 
 テキスト: "${text.trim()}"
 
@@ -563,31 +562,32 @@ app.post('/api/classify-context', async (req, res) => {
   }
 ]`;
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const content = response.text().trim();
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const content = response.text().trim();
 
-        try {
-          const jsonMatch = content.match(/\[[\s\S]*\]/);
-          if (jsonMatch) {
-            const jsonArray = JSON.parse(jsonMatch[0]);
-            if (Array.isArray(jsonArray)) {
-              classifications = jsonArray.filter(item => 
-                item.category && 
-                item.text && 
-                categories.some(cat => cat.name === item.category)
-              );
-            }
+      try {
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const jsonArray = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(jsonArray)) {
+            classifications = jsonArray.filter(item => 
+              item.category && 
+              item.text && 
+              categories.some(cat => cat.name === item.category)
+            );
           }
-        } catch (parseError) {
-          console.error('Gemini応答のパースエラー:', parseError);
         }
-      } catch (geminiError) {
-        console.error('Gemini API エラー:', geminiError);
+      } catch (parseError) {
+        console.error('Gemini応答のパースエラー:', parseError);
+        throw new Error('Gemini応答のパースに失敗しました');
       }
+    } catch (geminiError) {
+      console.error('Gemini API エラー:', geminiError);
+      throw new Error('Gemini APIでの分類に失敗しました');
     }
 
-    // Gemini APIが失敗した場合のみ、キーワードベース分類を使用
+    // Gemini分類が失敗した場合のフォールバック
     if (classifications.length === 0) {
       console.log('Gemini分類失敗、キーワードベース分類を使用');
       classifications = performKeywordBasedClassification(text);
@@ -599,26 +599,22 @@ app.post('/api/classify-context', async (req, res) => {
         existing.category === item.category && 
         existing.text === item.text
       );
-      
       if (!isDuplicate) {
         unique.push(item);
       }
       return unique;
     }, []);
 
-    console.log('最終分類結果:', uniqueClassifications);
-
-    // 信頼度を含む詳細な分類結果のみを返す
-    res.json({ 
+    res.json({
+      message: '分類が完了しました',
       classifications: uniqueClassifications
     });
 
   } catch (error) {
-    console.error('AI文脈分類エラー:', error);
-    res.status(500).json({
-      error: 'エラー',
-      details: error.message,
-      classifications: []
+    console.error('分類エラー:', error);
+    res.status(500).json({ 
+      error: '分類処理中にエラーが発生しました',
+      details: error.message
     });
   }
 });
@@ -1072,68 +1068,6 @@ app.post('/api/transcribe-audio-gemini', upload.single('audio'), async (req, res
     res.status(500).json({
       error: '音声ファイル処理エラー',
       details: error.message
-    });
-  }
-});
-
-// テキスト分類エンドポイント
-app.post('/api/classify', async (req, res) => {
-  try {
-    const { text } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: 'テキストが必要です' });
-    }
-
-    console.log('分類リクエスト受信:', { text: text.substring(0, 100) + '...' });
-
-    // Gemini AIモデルを使用してテキストを分類
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    const prompt = SPEECH_CLASSIFICATION_PROMPT + text;
-    
-    console.log('Geminiにリクエスト送信...');
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    console.log('Gemini応答受信');
-
-    let classifications;
-    try {
-      classifications = JSON.parse(response.text());
-    } catch (parseError) {
-      console.error('JSON解析エラー:', parseError);
-      console.log('Geminiからの生の応答:', response.text());
-      return res.status(500).json({ 
-        error: 'AIの応答を解析できませんでした',
-        raw_response: response.text()
-      });
-    }
-
-    if (!classifications || !classifications.classifications) {
-      console.error('無効な分類結果:', classifications);
-      return res.status(500).json({ 
-        error: '無効な分類結果',
-        result: classifications
-      });
-    }
-
-    // CSV形式に変換
-    const csvFormat = convertToCSVFormat(classifications.classifications);
-    
-    console.log('分類完了:', {
-      categories: classifications.classifications.length,
-      csvLength: csvFormat.split('\n').length
-    });
-
-    res.json({
-      classifications: classifications.classifications,
-      csv_format: csvFormat
-    });
-
-  } catch (error) {
-    console.error('分類エラー:', error);
-    res.status(500).json({ 
-      error: '分類処理中にエラーが発生しました',
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
