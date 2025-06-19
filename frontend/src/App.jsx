@@ -1152,26 +1152,6 @@ function App() {
           />
         </div>
 
-        {/* 写真撮影フローティングボタン */}
-        <div className="fixed bottom-4 left-4 z-50">
-          <button
-            onClick={capturePhoto}
-            disabled={isAnalyzing || isProcessing}
-            className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center text-white transition-all duration-200 ${
-              isAnalyzing || isProcessing
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-red-500 hover:bg-red-600 hover:scale-110'
-            }`}
-            title="写真撮影"
-          >
-            {isAnalyzing ? (
-              <div className="animate-spin">⟳</div>
-            ) : (
-              <Camera size={28} />
-            )}
-          </button>
-        </div>
-
         {/* インサイト・Q&Aセクション */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* インサイト生成 */}
@@ -1270,6 +1250,78 @@ function App() {
 
         {/* 分類結果表示 */}
         <ClassificationSection categories={categories} />
+      </div>
+
+      {/* カメラボタン */}
+      <div className="fixed bottom-6 left-6 z-50">
+        <button
+          onClick={() => {
+            capturePhoto().catch(error => {
+              console.error('📸 ボタンクリックエラー:', error);
+              alert(`写真撮影でエラーが発生しました: ${error.message || '不明なエラー'}`);
+            });
+          }}
+          disabled={isAnalyzing || isProcessing}
+          className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
+            isAnalyzing 
+              ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
+              : 'bg-red-100 hover:bg-red-200 hover:scale-110 border-red-700'
+          } ${isProcessing || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''} text-red-900`}
+          title={isAnalyzing ? 'AI解析中...' : '写真撮影'}
+        >
+          {isAnalyzing ? <Camera size={24} className="animate-pulse" /> : <Camera size={24} />}
+        </button>
+      </div>
+
+      {/* マイクボタン */}
+      <div className="fixed bottom-6 right-24 z-50">
+        {isWebSpeechSupported ? (
+          <button
+            onClick={toggleRecording}
+            disabled={isProcessing}
+            className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
+              isWebSpeechRecording 
+                ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
+                : 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-blue-700'
+            } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} text-blue-900`}
+            title={isWebSpeechRecording ? '録音停止' : '音声録音'}
+          >
+            {isWebSpeechRecording ? <MicOff size={24} /> : <Mic size={24} />}
+          </button>
+        ) : (
+          <div className="w-16 h-16 rounded-full shadow-lg flex items-center justify-center bg-gray-400 text-white" title="このブラウザは音声認識に対応していません">
+            <HelpCircle size={24} />
+          </div>
+        )}
+      </div>
+
+      {/* データ操作セクション */}
+      <div className="fixed bottom-6 right-6 z-50 flex gap-2">
+        {/* Excel出力 */}
+        <button
+          onClick={exportData}
+          disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
+          className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50"
+          title="視察データをエクスポート"
+        >
+          <Download size={20} />
+          <span>エクスポート</span>
+        </button>
+        
+        {/* データクリア */}
+        <button
+          onClick={() => {
+            if (window.confirm('本当にすべてのデータをクリアしますか？この操作は元に戻せません。')) {
+              clearAllData();
+            }
+          }}
+          disabled={isProcessing || isWebSpeechRecording}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50"
+          title="すべてのデータを削除"
+        >
+          <Trash2 size={20} />
+          <span>データクリア</span>
+        </button>
       </div>
     </div>
   );
