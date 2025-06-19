@@ -642,11 +642,26 @@ function App() {
         return;
       }
 
-      // 音声ファイル形式チェック
-      const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/m4a', 'audio/webm', 'audio/ogg'];
-      if (!allowedTypes.includes(file.type)) {
+      // 音声ファイル形式チェック（M4A対応を強化）
+      const allowedTypes = [
+        'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/m4a', 
+        'audio/x-m4a', 'audio/mp4a-latm', 'audio/aac',
+        'audio/webm', 'audio/ogg'
+      ];
+      
+      // ファイル拡張子もチェック
+      const fileName = file.name.toLowerCase();
+      const allowedExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.webm', '.ogg', '.mp4'];
+      const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+      
+      if (!allowedTypes.includes(file.type) && !hasValidExtension) {
         alert('対応していない音声形式です。MP3、WAV、M4A等の音声ファイルを選択してください。');
         return;
+      }
+
+      // M4Aファイルの場合は追加の警告
+      if (fileName.endsWith('.m4a') || file.type.includes('m4a')) {
+        console.log('M4Aファイルを検出しました。iPhoneで録音された場合、ロスレス形式だと処理できない可能性があります。');
       }
 
       setUploadedAudio(file);
@@ -1330,16 +1345,18 @@ function App() {
           <h3 className="text-base font-medium text-gray-700 mb-3 flex items-center gap-2">
             🎵 音声ファイルアップロード
           </h3>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3">
             <input
               type="file"
-              accept="audio/*"
+              accept=".m4a,.mp3,.wav,.aac,.webm,.ogg,audio/*"
               onChange={handleAudioUpload}
               disabled={isProcessing || isWebSpeechRecording}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
             />
-            <div className="text-xs text-gray-500">
-              MP3、WAV、M4A等の音声ファイルに対応
+            <div className="text-xs text-gray-500 space-y-1">
+              <div>📱 <strong>対応形式:</strong> M4A、MP3、WAV、AAC、WebM、OGG</div>
+              <div>📁 <strong>iPhone:</strong> 「ブラウズ」→「ファイル」アプリからM4Aファイルを選択してください</div>
+              <div>⚠️ <strong>M4A注意:</strong> iPhoneで「ロスレス」録音されたファイルは処理できない場合があります</div>
             </div>
           </div>
           {uploadedAudio && (
@@ -1633,7 +1650,7 @@ function App() {
 
         {/* フッター */}
         <div className="text-center text-gray-500 pt-6 border-t border-gray-200">
-          <p className="text-sm">🚀 Powered by Gemini AI • 効率的な店舗視察をサポート</p>
+          <p className="text-sm">developed by T.H. June, 2025</p>
         </div>
       </div>
     </div>
