@@ -68,7 +68,7 @@ const formatFileSize = (bytes) => {
   return (bytes / 1048576).toFixed(1) + ' MB';
 };
 
-// 写真機能コンポーネント
+// PhotoCaptureコンポーネント
 const PhotoCapture = ({ 
   onPhotoAdded, 
   categories, 
@@ -139,7 +139,7 @@ const PhotoCapture = ({
     }
   };
 
-  // downloadAllPhotos関数（写真のみ）
+  // downloadAllPhotos関数（写真のみ、JSONファイルなし）
   const downloadAllPhotos = async () => {
     if (photos.length === 0) {
       alert('ダウンロード可能な写真がありません');
@@ -147,9 +147,9 @@ const PhotoCapture = ({
     }
 
     try {
-      // JSZipがwindowオブジェクトに存在するかチェック
-      if (window.JSZip) {
-        const zip = new window.JSZip();
+      // JSZipの安全な使用
+      if (typeof JSZip !== 'undefined') {
+        const zip = new JSZip();
         
         // 写真のみZIPに追加
         photos.forEach((photo, index) => {
@@ -195,17 +195,7 @@ const PhotoCapture = ({
         // JSZipが利用できない場合は個別ダウンロード
         photos.forEach((photo, index) => {
           setTimeout(() => {
-            const link = document.createElement('a');
-            link.href = photo.base64;
-            const timestamp = new Date(photo.timestamp || Date.now())
-              .toISOString()
-              .slice(0, 19)
-              .replace(/[T:]/g, '-');
-            const category = photo.category ? `_${photo.category}` : '';
-            link.download = `photo_${index + 1}_${timestamp}${category}.jpg`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            downloadPhoto(photo);
           }, index * 500);
         });
         
@@ -218,9 +208,9 @@ const PhotoCapture = ({
   };
 
   return (
-    <div className="mb-6">
-      {/* ヘッダーの一括ダウンロードボタンも iPhone 向けに調整 */}
-      <div className="flex justify-between items-center mb-3">
+    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+      {/* ヘッダー */}
+      <div className="flex justify-between items-center mb-3 p-4">
         <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
           📸 視察写真
           {photos.length > 0 && (
@@ -230,7 +220,6 @@ const PhotoCapture = ({
           )}
         </h2>
         <div className="flex gap-2">
-          {/* 一括ダウンロードボタン - iPhone向けサイズ */}
           {photos.length > 0 && (
             <button
               onClick={downloadAllPhotos}
@@ -242,102 +231,98 @@ const PhotoCapture = ({
               <span>全保存</span>
             </button>
           )}
-          {/* 写真撮影ボタン - iPhone向けサイズ */}
-          <button
-            onClick={onPhotoAdded}
-            disabled={isProcessing}
-            className="flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 shadow-sm transition-all duration-200 font-medium active:bg-blue-600"
-          >
-            <Camera size={16} />
-            <span className="text-sm font-medium">
-              {isProcessing ? '解析中...' : '撮影'}
-            </span>
-          </button>
         </div>
       </div>
 
-      {/* 写真一覧 - iPhone最適化版 */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-        {photos.length > 0 ? (
-          <div className="p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {photos.map((photo) => (
-                <div key={photo.id} className="bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
-                  {/* 写真画像 */}
-                  <div className="aspect-square bg-gray-100 overflow-hidden">
-                    <img
-                      src={photo.base64}
-                      alt={photo.description}
-                      className="w-full h-full object-cover"
-                    />
+      {/* 撮影ヒント */}
+      {photos.length === 0 && (
+        <div className="mx-4 mb-4 p-3 bg-red-50 rounded-lg border border-red-200">
+          <div className="flex items-center gap-2">
+            <Camera size={16} className="text-red-600" />
+            <span className="text-red-700 text-sm font-medium">
+              📸 左下の赤いカメラボタンで写真撮影できます
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 写真一覧 */}
+      {photos.length > 0 ? (
+        <div className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {photos.map((photo) => (
+              <div key={photo.id} className="bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
+                {/* 写真画像 */}
+                <div className="aspect-square bg-gray-100 overflow-hidden">
+                  <img
+                    src={photo.base64}
+                    alt={photo.description}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                
+                {/* 写真情報とアクションボタン */}
+                <div className="p-3">
+                  {/* 写真メタ情報 */}
+                  <div className="mb-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-green-400"></span>
+                      <span className="font-medium text-sm text-gray-700">{photo.category}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mb-1">
+                      {photo.timestamp}
+                    </div>
+                    {photo.analysis?.confidence && (
+                      <div className="text-xs text-blue-600">
+                        信頼度: {Math.round(photo.analysis.confidence * 100)}%
+                      </div>
+                    )}
+                    {photo.description && (
+                      <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                        {photo.description}
+                      </p>
+                    )}
                   </div>
                   
-                  {/* 写真情報とアクションボタン */}
-                  <div className="p-3">
-                    {/* 写真メタ情報 */}
-                    <div className="mb-3">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="inline-block w-2 h-2 rounded-full bg-green-400"></span>
-                        <span className="font-medium text-sm text-gray-700">{photo.category}</span>
-                      </div>
-                      <div className="text-xs text-gray-500 mb-1">
-                        {photo.timestamp}
-                      </div>
-                      {photo.analysis?.confidence && (
-                        <div className="text-xs text-blue-600">
-                          信頼度: {Math.round(photo.analysis.confidence * 100)}%
-                        </div>
-                      )}
-                      {photo.description && (
-                        <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                          {photo.description}
-                        </p>
-                      )}
-                    </div>
+                  {/* アクションボタン群 */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSelectedPhoto(photo)}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-blue-500 text-white rounded-lg text-sm font-medium active:bg-blue-600 transition-colors"
+                    >
+                      <Eye size={16} />
+                      <span>詳細</span>
+                    </button>
                     
-                    {/* アクションボタン群 - iPhone向け大きめサイズ */}
-                    <div className="flex gap-2">
-                      {/* 詳細表示ボタン */}
-                      <button
-                        onClick={() => setSelectedPhoto(photo)}
-                        className="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-blue-500 text-white rounded-lg text-sm font-medium active:bg-blue-600 transition-colors"
-                      >
-                        <Eye size={16} />
-                        <span>詳細</span>
-                      </button>
-                      
-                      {/* ダウンロードボタン */}
-                      <button
-                        onClick={() => downloadPhoto(photo)}
-                        className="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-green-500 text-white rounded-lg text-sm font-medium active:bg-green-600 transition-colors"
-                      >
-                        <Download size={16} />
-                        <span>保存</span>
-                      </button>
-                      
-                      {/* 削除ボタン */}
-                      <button
-                        onClick={() => removePhoto(photo.id)}
-                        className="flex items-center justify-center py-3 px-3 bg-red-500 text-white rounded-lg active:bg-red-600 transition-colors"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => downloadPhoto(photo)}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-green-500 text-white rounded-lg text-sm font-medium active:bg-green-600 transition-colors"
+                    >
+                      <Download size={16} />
+                      <span>保存</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => removePhoto(photo.id)}
+                      className="flex items-center justify-center py-3 px-3 bg-red-500 text-white rounded-lg active:bg-red-600 transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        ) : (
-          <div className="p-8 text-center text-gray-400">
-            <Camera size={48} className="mx-auto mb-3 opacity-50" />
-            <p>まだ写真がありません</p>
-            <p className="text-sm mt-1">「写真撮影」ボタンでiPhoneカメラが起動します</p>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="p-8 text-center text-gray-400">
+          <Camera size={48} className="mx-auto mb-3 opacity-50" />
+          <p>まだ写真がありません</p>
+          <p className="text-sm mt-1">左下のカメラボタンでiPhoneカメラが起動します</p>
+        </div>
+      )}
 
-      {/* 写真詳細モーダル - iPhone最適化版 */}
+      {/* 写真詳細モーダル */}
       {selectedPhoto && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-75 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -360,7 +345,7 @@ const PhotoCapture = ({
                 className="w-full rounded-lg mb-4"
               />
               
-              {/* アクションボタン - iPhone向け大きめ */}
+              {/* アクションボタン */}
               <div className="flex gap-3 mb-4">
                 <button
                   onClick={() => downloadPhoto(selectedPhoto)}
@@ -569,12 +554,15 @@ const PhotoCard = ({ photo, onDelete }) => {
 // メインアプリコンポーネント
 function App() {
   const [storeName, setStoreName] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [photos, setPhotos] = useState([]);
   const [categories, setCategories] = useState([
-    { name: '価格情報', items: [], description: '商品の価格、特売情報、価格比較に関する情報' },
-    { name: '売り場情報', items: [], description: '売り場のレイアウト、面積、陳列方法に関する情報' },
-    { name: '客層・混雑度', items: [], description: '来店客の年齢層、混雑状況、客動線に関する情報' },
-    { name: '商品・品揃え', items: [], description: '商品の種類、品揃え、欠品状況に関する情報' },
-    { name: '店舗環境', items: [], description: '清潔さ、照明、音楽、空調などの店舗環境に関する情報' }
+    { name: '店舗情報', items: [] },
+    { name: '価格情報', items: [] },
+    { name: '売り場情報', items: [] },
+    { name: '客層・混雑度', items: [] },
+    { name: '商品・品揃え', items: [] },
+    { name: '店舗環境', items: [] }
   ]);
   const [transcript, setTranscript] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -588,7 +576,6 @@ function App() {
   const [showTextInput, setShowTextInput] = useState(false);
   const [isWebSpeechSupported, setIsWebSpeechSupported] = useState(false);
   const [isWebSpeechRecording, setIsWebSpeechRecording] = useState(false);
-  const [photos, setPhotos] = useState([]); // 写真データ
   const recognitionRef = useRef(null);
   const [textInput, setTextInput] = useState('');
   
@@ -1011,27 +998,128 @@ function App() {
     }
   };
 
-  // iPhone向け写真撮影（ネイティブカメラ起動）
-  const capturePhoto = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.capture = 'environment';
-    input.multiple = true;
-    
-    input.onchange = (event) => {
-      const files = Array.from(event.target.files);
-      files.forEach(file => processPhoto(file));
-    };
-    
-    input.click();
+  // Base64変換ユーティリティ
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+    });
   };
 
-  // 写真処理（AI解析 + 自動分類）
-  const processPhoto = async (file) => {
+  // 写真のメタデータ抽出
+  const extractPhotoMetadata = async (file) => {
+    const metadata = {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      lastModified: file.lastModified
+    };
+
+    // 位置情報の取得を試みる
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject);
+      });
+
+      metadata.location = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      };
+    } catch (error) {
+      console.log('位置情報の取得に失敗:', error);
+    }
+
+    return metadata;
+  };
+
+  // 写真のAI解析
+  const analyzePhotoWithGemini = async (base64Image) => {
+    try {
+      const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
+      const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: base64Image })
+      });
+
+      if (!response.ok) {
+        throw new Error('AI解析に失敗しました');
+      }
+
+      const result = await response.json();
+      
+      // 最も信頼度の高い分類を取得
+      const bestClassification = result.classifications.reduce(
+        (best, current) => (!best || current.confidence > best.confidence) ? current : best,
+        null
+      );
+
+      return {
+        suggestedCategory: bestClassification?.category || '店舗環境',
+        description: bestClassification?.text || '',
+        confidence: bestClassification?.confidence || 0,
+        allClassifications: result.classifications
+      };
+    } catch (error) {
+      console.error('AI解析エラー:', error);
+      return null;
+    }
+  };
+
+  // カテゴリへの写真追加
+  const addPhotoToCategory = (photoData) => {
+    setCategories(prevCategories => {
+      return prevCategories.map(category => {
+        if (category.name === photoData.category) {
+          return {
+            ...category,
+            items: [...category.items, {
+              id: Date.now().toString(),
+              photoId: photoData.id,
+              text: photoData.description,
+              confidence: photoData.confidence,
+              timestamp: photoData.timestamp
+            }]
+          };
+        }
+        return category;
+      });
+    });
+  };
+
+  // 写真撮影とAI解析
+  const capturePhoto = async () => {
+    if (isAnalyzing || isProcessing) return;
+    
     try {
       setIsAnalyzing(true);
       
+      // input要素の作成と設定
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.capture = 'environment';
+      
+      // ファイル選択プロミスの作成
+      const file = await new Promise((resolve) => {
+        input.onchange = (event) => {
+          const files = event.target.files;
+          if (files && files.length > 0) {
+            resolve(files[0]);
+          }
+        };
+        input.click();
+      });
+
+      if (!file) {
+        throw new Error('写真が選択されませんでした');
+      }
+
       // Base64変換
       const base64 = await fileToBase64(file);
       
@@ -1055,113 +1143,19 @@ function App() {
         name: file.name || `photo_${Date.now()}.jpg`
       };
 
-      setPhotos(prev => [...prev, photoData]);
+      handlePhotoAdded(photoData);
       
       // カテゴリに自動追加
       if (analysis?.suggestedCategory && analysis?.description) {
         addPhotoToCategory(photoData);
       }
-      
+
     } catch (error) {
-      console.error('写真処理エラー:', error);
-      alert('写真の処理中にエラーが発生しました');
+      console.error('写真撮影エラー:', error);
+      alert('写真の撮影に失敗しました');
     } finally {
       setIsAnalyzing(false);
     }
-  };
-
-  // Gemini Vision APIで写真解析
-  const analyzePhotoWithGemini = async (base64Image) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          image: base64Image.split(',')[1],
-          categories: categories.map(c => c.name)
-        })
-      });
-      
-      if (!response.ok) throw new Error('AI解析に失敗');
-      
-      return await response.json();
-    } catch (error) {
-      console.error('AI解析エラー:', error);
-      return {
-        suggestedCategory: '店舗環境',
-        description: '写真が追加されました',
-        confidence: 0.5,
-        detectedElements: []
-      };
-    }
-  };
-
-  // 写真をカテゴリに自動追加
-  const addPhotoToCategory = (photoData) => {
-    setCategories(prevCategories => {
-      const updatedCategories = [...prevCategories];
-      const categoryIndex = updatedCategories.findIndex(
-        cat => cat.name === photoData.category
-      );
-      
-      if (categoryIndex !== -1) {
-        updatedCategories[categoryIndex].items.push({
-          text: `📸 ${photoData.description}`,
-          confidence: photoData.confidence,
-          reason: 'AI写真解析による自動分類',
-          timestamp: photoData.timestamp,
-          photoId: photoData.id,
-          isPhoto: true
-        });
-      }
-      
-      return updatedCategories;
-    });
-  };
-
-  // Base64変換
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // 写真メタデータ抽出
-  const extractPhotoMetadata = async (file) => {
-    try {
-      const location = await getCurrentLocation();
-      
-      return {
-        size: `${(file.size / 1024 / 1024).toFixed(1)}MB`,
-        type: file.type,
-        lastModified: new Date(file.lastModified).toLocaleString('ja-JP'),
-        location: location
-      };
-    } catch (error) {
-      return { size: `${(file.size / 1024 / 1024).toFixed(1)}MB` };
-    }
-  };
-
-  // 位置情報取得
-  const getCurrentLocation = () => {
-    return new Promise((resolve) => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => resolve({
-            lat: position.coords.latitude.toFixed(6),
-            lng: position.coords.longitude.toFixed(6),
-            accuracy: Math.round(position.coords.accuracy)
-          }),
-          () => resolve(null),
-          { timeout: 5000, enableHighAccuracy: true }
-        );
-      } else {
-        resolve(null);
-      }
-    });
   };
 
   return (
@@ -1209,7 +1203,7 @@ function App() {
           onPhotoAdded={handlePhotoAdded}
           categories={categories}
           setCategories={setCategories}
-          isProcessing={isProcessing}
+          isProcessing={isAnalyzing}
           storeName={storeName}
           photos={photos}
           setPhotos={setPhotos}
@@ -1293,6 +1287,22 @@ function App() {
               <HelpCircle size={24} />
             </div>
           )}
+        </div>
+
+        {/* 浮遊カメラボタン */}
+        <div className="fixed bottom-6 left-6 z-50">
+          <button
+            onClick={capturePhoto}
+            disabled={isAnalyzing || isProcessing}
+            className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
+              isAnalyzing 
+                ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
+                : 'bg-red-100 hover:bg-red-200 hover:scale-110 border-red-700'
+            } ${isProcessing || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''} text-red-900`}
+            title={isAnalyzing ? 'AI解析中...' : '写真撮影'}
+          >
+            {isAnalyzing ? <Camera size={24} className="animate-pulse" /> : <Camera size={24} />}
+          </button>
         </div>
 
         {/* Web Speech API 状態表示 */}
