@@ -615,13 +615,7 @@ function App() {
           return prev ? `${prev}\n\n${newContent}` : newContent;
         });
 
-        console.log('AI自動分類開始...');
-        try {
-          await performAIClassification(transcriptText, categories, setCategories);
-        } catch (classificationError) {
-          console.warn('自動分類に失敗:', classificationError);
-        }
-
+        // 店舗名の自動抽出のみ実行
         if (!storeName) {
           const extractedStoreName = extractStoreName(transcriptText);
           if (extractedStoreName) {
@@ -630,7 +624,7 @@ function App() {
           }
         }
 
-        alert(`✅ Gemini 1.5 Flashによる音声認識が完了しました！\n\n認識結果: ${transcriptText.length}文字\nファイル: ${uploadedAudio.name}`);
+        alert(`✅ Gemini 1.5 Flashによる音声認識が完了しました！\n\nファイル: ${uploadedAudio.name}\n認識結果: ${transcriptText.length}文字\n\n分類は手動で実行してください。`);
       } else {
         console.warn('Gemini音声認識結果が空です:', result);
         throw new Error('音声から文字起こしできませんでした。音声が明瞭でない、またはサポートされていない形式の可能性があります。');
