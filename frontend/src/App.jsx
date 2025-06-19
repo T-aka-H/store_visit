@@ -616,63 +616,222 @@ function App() {
     );
   };
 
-  // 写真撮影とAI解析
+  // 写真撮影関数（エラーハンドリング強化版）
   const capturePhoto = async () => {
-    if (isAnalyzing || isProcessing) return;
+    if (isAnalyzing || isProcessing) {
+      alert('現在処理中です。しばらくお待ちください。');
+      return;
+    }
     
     try {
       setIsAnalyzing(true);
       console.log('📷 写真撮影開始');
       
-      // ファイル選択
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.capture = 'environment';
-      
-      const file = await new Promise((resolve) => {
+      // ファイル選択の改善版
+      const file = await new Promise((resolve, reject) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.capture = 'environment';
+        
+        // タイムアウト設定（30秒）
+        const timeoutId = setTimeout(() => {
+          reject(new Error('ファイル選択がタイムアウトしました'));
+        }, 30000);
+        
         input.onchange = (event) => {
+          clearTimeout(timeoutId);
           const files = event.target.files;
-          resolve(files && files.length > 0 ? files[0] : null);
+          if (files && files.length > 0) {
+            console.log('📷 ファイル選択成功:', files[0].name);
+            resolve(files[0]);
+          } else {
+            reject(new Error('ファイルが選択されませんでした'));
+          }
         };
-        input.click();
+        
+        // エラーハンドリング追加
+        input.onerror = (error) => {
+          clearTimeout(timeoutId);
+          console.error('📷 input要素エラー:', error);
+          reject(new Error('ファイル選択でエラーが発生しました'));
+        };
+        
+        try {
+          input.click();
+        } catch (clickError) {
+          clearTimeout(timeoutId);
+          console.error('📷 click()エラー:', clickError);
+          reject(new Error('ファイル選択ダイアログを開けませんでした'));
+        }
       });
 
-      if (!file) return;
-
-      // 軽量化：リサイズしてからBase64変換
-      const resizedBase64 = await resizeAndConvertImage(file, 800, 600); // 最大800x600に制限
+      if (!file) {
+        throw new Error('ファイルが選択されませんでした');
+      }
       
-      // AI解析（高速モード）
-      const analysis = await analyzePhotoWithGemini(resizedBase64);
+      console.log(`📷 ファイル情報:`, {
+        name: file.name,
+        type: file.type,
+        size: `${(file.size/1024/1024).toFixed(2)}MB`
+      });
       
-      if (!analysis.success) {
-        throw new Error('写真解析に失敗しました');
+      // ファイル形式チェック
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(file.type.toLowerCase())) {
+        throw new Error(`対応していない画像形式です: ${file.type}\n\n対応形式: JPEG, PNG, WebP`);
+      }
+      
+      // ファイルサイズチェック（10MB制限）
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (file.size > maxSize) {
+        throw new Error(`ファイルサイズが大きすぎます: ${(file.size/1024/1024).toFixed(2)}MB\n\n制限: 10MB以下`);
       }
 
-      // 写真データの簡略化
+      // 画像をBase64に変換（エラーハンドリング強化）
+      console.log('🔄 画像変換開始...');
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onload = (event) => {
+          try {
+            const result = event.target.result;
+            if (result && typeof result === 'string') {
+              console.log('✅ Base64変換成功');
+              resolve(result);
+            } else {
+              reject(new Error('Base64変換結果が無効です'));
+            }
+          } catch (error) {
+            console.error('📷 reader.onload エラー:', error);
+            reject(new Error('Base64変換中にエラーが発生しました'));
+          }
+        };
+        
+        reader.onerror = (error) => {
+          console.error('📷 FileReader エラー:', error);
+          reject(new Error('ファイル読み込み中にエラーが発生しました'));
+        };
+        
+        reader.onabort = () => {
+          console.error('📷 FileReader 中断');
+          reject(new Error('ファイル読み込みが中断されました'));
+        };
+        
+        try {
+          reader.readAsDataURL(file);
+        } catch (readError) {
+          console.error('📷 readAsDataURL エラー:', readError);
+          reject(new Error('ファイル読み込みを開始できませんでした'));
+        }
+      });
+
+      // 画像サイズ確認
+      const imageSizeKB = Math.round(base64.length * 0.75 / 1024);
+      console.log(`📊 Base64サイズ: ${imageSizeKB}KB`);
+      
+      if (imageSizeKB > 5000) { // 5MB制限
+        throw new Error(`変換後の画像サイズが大きすぎます: ${imageSizeKB}KB\n\nより小さな画像をお選びください`);
+      }
+
+      // AI解析実行（簡略版）
+      console.log('🤖 AI解析開始...');
+      let analysis;
+      try {
+        // タイムアウト設定（20秒）
+        const analysisPromise = analyzePhotoWithGemini(base64);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('AI解析がタイムアウトしました（20秒）')), 20000);
+        });
+        
+        analysis = await Promise.race([analysisPromise, timeoutPromise]);
+      } catch (analysisError) {
+        console.error('🤖 AI解析エラー:', analysisError);
+        
+        // フォールバック: 基本的な写真データを作成
+        console.log('🔄 フォールバック処理開始');
+        analysis = {
+          success: true,
+          id: Date.now(),
+          classifications: [{
+            category: '店舗環境',
+            text: `写真が追加されました (${new Date().toLocaleTimeString()})`,
+            confidence: 0.5,
+            reason: 'AI解析失敗のためフォールバック'
+          }],
+          processedImage: {
+            data: base64
+          }
+        };
+        
+        console.log('⚠️ AI解析に失敗しましたが、写真は正常に保存されます');
+      }
+
+      if (!analysis) {
+        throw new Error('AI解析結果が無効です');
+      }
+
+      // 写真データの作成
       const photoData = {
-        id: analysis.id,
-        base64: analysis.processedImage.data, // リサイズ済み画像
+        id: analysis.id || Date.now(),
+        base64: analysis.processedImage?.data || base64,
         timestamp: new Date().toLocaleString('ja-JP'),
-        category: analysis.classifications[0]?.category || '店舗環境',
-        description: analysis.classifications[0]?.text || '写真が追加されました',
-        confidence: analysis.classifications[0]?.confidence || 0.7
+        category: analysis.classifications?.[0]?.category || '店舗環境',
+        description: analysis.classifications?.[0]?.text || '写真が追加されました',
+        confidence: analysis.classifications?.[0]?.confidence || 0.7
       };
 
-      // 状態更新
+      console.log('💾 写真データ保存:', {
+        id: photoData.id,
+        category: photoData.category,
+        confidence: photoData.confidence
+      });
+      
       setPhotos(prev => [...prev, photoData]);
       
       // カテゴリに自動追加
-      if (analysis.classifications.length > 0) {
-        addClassificationsToCategories(analysis.classifications);
+      if (analysis.classifications && analysis.classifications.length > 0) {
+        try {
+          addClassificationsToCategories(analysis.classifications);
+          console.log(`📊 ${analysis.classifications.length}件の分類を追加`);
+        } catch (categoryError) {
+          console.error('📊 カテゴリ追加エラー:', categoryError);
+          // カテゴリ追加に失敗しても写真保存は成功とする
+        }
       }
 
-      alert(`📸 写真解析完了！\n${analysis.classifications.length}件の情報を検出`);
+      // 成功メッセージ
+      const successMessage = analysis.fallback 
+        ? `📸 写真を保存しました！\n\n⚠️ AI解析は失敗しましたが、写真は正常に保存されています。\n\nカテゴリ: ${photoData.category}`
+        : `📸 写真解析完了！\n\nカテゴリ: ${photoData.category}\n説明: ${photoData.description}\n信頼度: ${Math.round(photoData.confidence * 100)}%`;
+      
+      alert(successMessage);
 
     } catch (error) {
-      console.error('写真撮影エラー:', error);
-      alert(`写真の処理に失敗しました: ${error.message}`);
+      console.error('📸 写真撮影エラー:', error);
+      
+      // エラーメッセージの詳細化
+      let userMessage = '写真の処理に失敗しました。';
+      
+      if (error.message) {
+        if (error.message.includes('選択されませんでした') || error.message.includes('タイムアウト')) {
+          userMessage = '写真の選択がキャンセルまたはタイムアウトしました。';
+        } else if (error.message.includes('対応していない')) {
+          userMessage = `${error.message}\n\n別の画像をお試しください。`;
+        } else if (error.message.includes('サイズが大きすぎます')) {
+          userMessage = `${error.message}\n\nより小さな画像をお選びください。`;
+        } else if (error.message.includes('ネットワーク') || error.message.includes('fetch')) {
+          userMessage = 'ネットワーク接続エラーです。\n\nインターネット接続を確認して再試行してください。';
+        } else if (error.message.includes('AI解析')) {
+          userMessage = 'AI解析に失敗しました。\n\nしばらく時間をおいてから再試行してください。';
+        } else {
+          userMessage = `写真処理エラー: ${error.message}`;
+        }
+      } else {
+        userMessage = '不明なエラーが発生しました。\n\nページを再読み込みして再試行してください。';
+      }
+      
+      alert(userMessage);
     } finally {
       setIsAnalyzing(false);
     }
@@ -1319,7 +1478,7 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 pb-24">
+    <div className="min-h-screen bg-gray-100">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* ヘッダー */}
         <div className="text-center mb-8">
@@ -1504,7 +1663,13 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
         {/* 浮遊カメラボタン */}
         <div className="fixed bottom-6 left-6 z-50">
           <button
-            onClick={capturePhoto}
+            onClick={() => {
+              // エラーハンドリング付きでcapturePhotoを呼び出し
+              capturePhoto().catch(error => {
+                console.error('📸 ボタンクリックエラー:', error);
+                alert(`写真撮影でエラーが発生しました: ${error.message || '不明なエラー'}`);
+              });
+            }}
             disabled={isAnalyzing || isProcessing}
             className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
               isAnalyzing 
