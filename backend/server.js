@@ -1084,17 +1084,45 @@ app.post('/api/classify', async (req, res) => {
       return res.status(400).json({ error: 'テキストが必要です' });
     }
 
+    console.log('分類リクエスト受信:', { text: text.substring(0, 100) + '...' });
+
     // Gemini AIモデルを使用してテキストを分類
     const model = genAI.getGenerativeModel({ model: "gemini-pro" });
     const prompt = SPEECH_CLASSIFICATION_PROMPT + text;
     
+    console.log('Geminiにリクエスト送信...');
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    const classifications = JSON.parse(response.text());
+    console.log('Gemini応答受信');
+
+    let classifications;
+    try {
+      classifications = JSON.parse(response.text());
+    } catch (parseError) {
+      console.error('JSON解析エラー:', parseError);
+      console.log('Geminiからの生の応答:', response.text());
+      return res.status(500).json({ 
+        error: 'AIの応答を解析できませんでした',
+        raw_response: response.text()
+      });
+    }
+
+    if (!classifications || !classifications.classifications) {
+      console.error('無効な分類結果:', classifications);
+      return res.status(500).json({ 
+        error: '無効な分類結果',
+        result: classifications
+      });
+    }
 
     // CSV形式に変換
     const csvFormat = convertToCSVFormat(classifications.classifications);
     
+    console.log('分類完了:', {
+      categories: classifications.classifications.length,
+      csvLength: csvFormat.split('\n').length
+    });
+
     res.json({
       classifications: classifications.classifications,
       csv_format: csvFormat
@@ -1102,7 +1130,11 @@ app.post('/api/classify', async (req, res) => {
 
   } catch (error) {
     console.error('分類エラー:', error);
-    res.status(500).json({ error: '分類処理中にエラーが発生しました' });
+    res.status(500).json({ 
+      error: '分類処理中にエラーが発生しました',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
