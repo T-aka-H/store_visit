@@ -99,8 +99,6 @@ const convertCsvToCategories = (csvFormat) => {
 
 // 分類結果テーブルコンポーネント
 const ClassificationTable = ({ category, items }) => {
-  if (items.length === 0) return null;
-
   return (
     <div className="mb-6">
       <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -157,6 +155,19 @@ const ClassificationTable = ({ category, items }) => {
                   </td>
                 </tr>
               ))}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan="4" className="px-4 py-8 text-center text-gray-500">
+                    <div className="flex flex-col items-center">
+                      <span className="text-2xl mb-2">📝</span>
+                      <p className="text-sm font-medium">データがありません</p>
+                      <p className="text-xs text-gray-400">
+                        音声録音や写真撮影で情報を追加してください
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

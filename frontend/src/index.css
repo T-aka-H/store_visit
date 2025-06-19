@@ -1,154 +1,19 @@
-/* src/index.css */
+/* Tailwind CSS のベーススタイルを読み込み */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* カスタムCSS */
-@layer base {
-  html {
-    font-family: 'Inter', system-ui, sans-serif;
-  }
-  
-  body {
-    @apply antialiased;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  }
+/* カスタムスタイルがあればここに追加 */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@layer components {
-  .btn-primary {
-    @apply bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl px-6 py-3 font-semibold transition-all duration-200 shadow-lg hover:shadow-xl hover:from-cyan-700 hover:to-blue-700;
-  }
-  
-  .btn-secondary {
-    @apply bg-slate-700 text-gray-300 rounded-xl px-6 py-3 font-semibold transition-all duration-200 shadow-lg hover:shadow-xl hover:bg-slate-600 hover:text-white;
-  }
-  
-  .card {
-    @apply bg-slate-800/80 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-700/50 p-6;
-  }
-  
-  .input-field {
-    @apply w-full px-4 py-3 border border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-slate-700/50 backdrop-blur-sm text-gray-100 placeholder-gray-400;
-  }
-  
-  .gradient-text {
-    @apply bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent;
-  }
-}
-
-@layer utilities {
-  .text-shadow {
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-  }
-  
-  .glass-effect {
-    background: rgba(30, 41, 59, 0.8);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(148, 163, 184, 0.1);
-  }
-}
-
-/* スクロールバーのカスタマイズ */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-slate-800;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-slate-600 rounded-full;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-500;
-}
-
-/* Firefox用スクロールバー */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #475569 #1e293b;
-}
-
-/* アニメーション */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.6s ease-out;
-}
-
-.animate-slide-in {
-  animation: slideIn 0.4s ease-out;
-}
-
-/* ローディング状態 */
-.loading-skeleton {
-  @apply bg-slate-700/50 animate-pulse rounded;
-}
-
-/* フォーカス表示の改善 */
-.focus-visible:focus-visible {
-  @apply outline-none ring-2 ring-cyan-500 ring-offset-2 ring-offset-slate-900;
-}
-
-/* アクセシビリティ */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* 高コントラストモード */
-@media (prefers-contrast: high) {
-  .card {
-    @apply border-2 border-slate-400;
-  }
-  
-  .btn-primary {
-    @apply border-2 border-cyan-300;
-  }
-}
-
-/* プリント用スタイル */
-@media print {
-  body {
-    @apply bg-white text-black;
-  }
-  
-  .card {
-    @apply bg-white border-2 border-gray-300 shadow-none;
-  }
-  
-  .btn-primary,
-  .btn-secondary {
-    @apply bg-gray-200 text-black border border-gray-400 shadow-none;
-  }
-}
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+} 
