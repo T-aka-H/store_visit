@@ -28,6 +28,7 @@ const CATEGORY_MAPPING = {
 const performAIClassification = async (text, categories, setCategories) => {
   try {
     console.log('🔄 AI分類開始（CORS回避モード）');
+    console.log('送信データ:', { text, categories: categories.map(cat => cat.name) });
     
     // CORSを回避してAPIを呼び出す
     const response = await fetch(`${API_BASE_URL}/api/classify`, {
@@ -36,22 +37,34 @@ const performAIClassification = async (text, categories, setCategories) => {
       credentials: 'omit',
       headers: { 
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Access-Control-Request-Headers': 'content-type'
+        'Accept': 'application/json'
       },
-      body: JSON.stringify({ 
-        text,
-        categories: categories.map(cat => ({ name: cat.name }))
-      })
+      body: JSON.stringify({ text })  // categoriesは固定のため、送信を省略
+    });
+
+    // レスポンスのステータスとテキストを取得
+    const responseText = await response.text();
+    console.log('APIレスポンス:', {
+      status: response.status,
+      statusText: response.statusText,
+      text: responseText
     });
 
     if (!response.ok) {
-      throw new Error(`API呼び出し失敗: ${response.status}`);
+      throw new Error(`API呼び出し失敗 (${response.status}): ${responseText}`);
     }
 
-    const result = await response.json();
-    
+    // JSONとしてパース
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('JSONパースエラー:', parseError);
+      throw new Error(`レスポンスのJSONパースに失敗: ${responseText}`);
+    }
+
     if (result.classifications) {
+      console.log('分類結果:', result.classifications);
       setCategories(prevCategories => 
         prevCategories.map(cat => {
           const newItems = result.classifications
