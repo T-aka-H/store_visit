@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin } from 'lucide-react';
 
-// 現在のURL設定を確認・修正
+// API設定
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://store-visit-7cux.onrender.com'  // 正しいバックエンドURL
+  ? 'https://store-visit-7cux.onrender.com'  // 本番環境のバックエンドURL
   : 'http://localhost:3001';
 
-console.log('API_BASE_URL:', API_BASE_URL); // デバッグ用
+console.log('環境設定:', {
+  NODE_ENV: process.env.NODE_ENV,
+  API_BASE_URL,
+  BUILD_TIME: new Date().toISOString()
+});
 
 // ユーティリティ関数
 const formatFileSize = (bytes) => {
@@ -428,6 +432,32 @@ const ClassificationSection = ({ categories }) => {
       ))}
     </div>
   );
+};
+
+// ヘルスチェック関数
+const checkApiHealth = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/health`);
+    const health = await response.json();
+    console.log('APIヘルスチェック:', health);
+    return health.status === 'OK';
+  } catch (error) {
+    console.error('ヘルスチェックエラー:', error);
+    return false;
+  }
+};
+
+// デバッグ情報取得関数
+const fetchDebugInfo = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/debug/photo-analysis`);
+    const debug = await response.json();
+    console.log('デバッグ情報:', debug);
+    return debug;
+  } catch (error) {
+    console.error('デバッグ情報取得エラー:', error);
+    return null;
+  }
 };
 
 // メインアプリコンポーネント
@@ -1076,47 +1106,40 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
 
   // downloadAllPhotos関数を修正（動的import使用）
   const downloadAllPhotos = async () => {
-    if (photos.length === 0) {
-      alert('ダウンロード可能な写真がありません');
-      return;
-    }
-
     try {
+      if (!photos.length) {
+        alert('ダウンロードする写真がありません');
+        return;
+      }
+
+      const storeNameSafe = storeName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const exportDate = new Date().toISOString().split('T')[0];
+
       const JSZip = await loadJSZip();
       
       if (JSZip) {
         const zip = new JSZip();
         
+        // 写真をZIPに追加
         photos.forEach((photo, index) => {
-          try {
-            const base64Data = photo.base64.split(',')[1];
-            
-            const timestamp = new Date(photo.timestamp || Date.now())
-              .toISOString()
-              .slice(0, 19)
-              .replace(/[T:]/g, '-');
-            const category = photo.category ? `_${photo.category}` : '';
-            const fileName = `photo_${String(index + 1).padStart(3, '0')}_${timestamp}${category}.jpg`;
-            
-            zip.file(fileName, base64Data, {base64: true});
-            
-          } catch (error) {
-            console.error(`写真 ${index + 1} の処理エラー:`, error);
-          }
+          const base64Data = photo.data.split(',')[1];
+          const fileName = `photo_${index + 1}.jpg`;
+          zip.file(fileName, base64Data, { base64: true });
+          
+          // メタデータをJSONとして追加
+          const metadata = {
+            id: photo.id,
+            timestamp: photo.timestamp,
+            classifications: photo.classifications
+          };
+          zip.file(`metadata_${index + 1}.json`, JSON.stringify(metadata, null, 2));
         });
         
-        const zipBlob = await zip.generateAsync({
-          type: 'blob',
-          compression: "DEFLATE",
-          compressionOptions: { level: 6 }
-        });
+        const content = await zip.generateAsync({ type: 'blob' });
+        const url = window.URL.createObjectURL(content);
         
-        const url = window.URL.createObjectURL(zipBlob);
         const link = document.createElement('a');
         link.href = url;
-        
-        const exportDate = new Date().toISOString().slice(0, 10);
-        const storeNameSafe = (storeName || 'unknown').replace(/[^a-zA-Z0-9\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '_');
         link.download = `store_photos_${storeNameSafe}_${exportDate}.zip`;
         
         document.body.appendChild(link);
@@ -1141,27 +1164,6 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
     }
   };
 
-  const handlePhotoAdded = (photoData) => {
-    console.log('写真が追加されました:', photoData);
-    setPhotos(prev => [...prev, photoData]);
-  };
-
-  // 分類結果を処理する関数を更新
-  const processClassificationResult = (result) => {
-    if (result.csv_format) {
-      const newCategories = convertCsvToCategories(result.csv_format);
-      setCategories(prevCategories => 
-        prevCategories.map(cat => {
-          const newCat = newCategories.find(nc => nc.name === cat.name);
-          return {
-            ...cat,
-            items: newCat ? [...cat.items, ...newCat.items] : cat.items
-          };
-        })
-      );
-    }
-  };
-
   // Base64変換ユーティリティ
   const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -1172,37 +1174,11 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
     });
   };
 
-  // 写真のメタデータ抽出
-  const extractPhotoMetadata = async (file) => {
-    const metadata = {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      lastModified: file.lastModified
-    };
-
-    // 位置情報の取得を試みる
-    try {
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
-      });
-
-      metadata.location = {
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        accuracy: position.coords.accuracy
-      };
-    } catch (error) {
-      console.log('位置情報の取得に失敗:', error);
-    }
-
-    return metadata;
-  };
-
-  // 写真のAI解析
+  // 写真解析関数（改善版）
   const analyzePhotoWithGemini = async (base64Image) => {
+    console.log('写真解析開始:', { imageSize: base64Image.length });
+    
     try {
-      const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3001';
       const response = await fetch(`${API_BASE_URL}/api/analyze-photo`, {
         method: 'POST',
         headers: {
@@ -1211,27 +1187,130 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
         body: JSON.stringify({ image: base64Image })
       });
 
+      console.log('APIレスポンスステータス:', response.status);
+      
       if (!response.ok) {
-        throw new Error('AI解析に失敗しました');
+        const errorData = await response.json().catch(() => ({ error: '不明なエラー' }));
+        throw new Error(`写真解析エラー (${response.status}): ${errorData.error || '不明なエラー'}`);
       }
 
       const result = await response.json();
+      console.log('解析結果:', {
+        success: result.success,
+        classificationsCount: result.classifications?.length,
+        hasProcessedImage: !!result.processedImage?.data
+      });
+
+      return result;
+    } catch (error) {
+      console.error('写真解析エラー:', error);
+      throw new Error(`写真の解析に失敗しました: ${error.message}`);
+    }
+  };
+
+  // 写真処理関数（改善版）
+  const handlePhotoAdded = async (photoData) => {
+    try {
+      setIsProcessing(true);
+      console.log('写真処理開始:', { size: photoData.size });
+
+      // 写真解析の実行
+      const result = await analyzePhotoWithGemini(photoData.base64);
       
-      // 最も信頼度の高い分類を取得
-      const bestClassification = result.classifications.reduce(
-        (best, current) => (!best || current.confidence > best.confidence) ? current : best,
-        null
-      );
+      if (!result.success) {
+        throw new Error('写真解析に失敗しました');
+      }
+
+      // 解析結果の処理
+      processClassificationResult(result);
+
+      // 写真の保存
+      const newPhoto = {
+        id: result.id,
+        data: result.processedImage.data,
+        thumbnail: result.processedImage.thumbnail,
+        timestamp: result.timestamp,
+        classifications: result.classifications
+      };
+
+      setPhotos(prev => [...prev, newPhoto]);
+      console.log('写真処理完了:', { 
+        photoId: newPhoto.id,
+        classificationsCount: newPhoto.classifications.length 
+      });
+
+      // 成功メッセージの表示
+      alert(`✅ 写真を解析しました！\n${result.classifications.length}件の情報を検出しました。`);
+
+    } catch (error) {
+      console.error('写真処理エラー:', error);
+      alert(`❌ エラーが発生しました: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 写真メタデータ抽出関数（改善版）
+  const extractPhotoMetadata = async (file) => {
+    try {
+      console.log('メタデータ抽出開始:', { 
+        fileName: file.name,
+        fileSize: formatFileSize(file.size),
+        fileType: file.type
+      });
+
+      // Base64変換
+      const base64 = await fileToBase64(file);
+      console.log('Base64変換完了:', { 
+        base64Length: base64.length,
+        isTruncated: base64.length > 100
+      });
 
       return {
-        suggestedCategory: bestClassification?.category || '店舗環境',
-        description: bestClassification?.text || '',
-        confidence: bestClassification?.confidence || 0,
-        allClassifications: result.classifications
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        base64: base64,
+        timestamp: new Date().toISOString()
       };
     } catch (error) {
-      console.error('AI解析エラー:', error);
-      return null;
+      console.error('メタデータ抽出エラー:', error);
+      throw new Error(`写真の読み込みに失敗しました: ${error.message}`);
+    }
+  };
+
+  // 分類結果処理関数（改善版）
+  const processClassificationResult = (result) => {
+    console.log('分類結果処理開始:', { 
+      hasClassifications: !!result.classifications,
+      count: result.classifications?.length 
+    });
+
+    try {
+      setCategories(prevCategories => 
+        prevCategories.map(cat => {
+          const newItems = result.classifications
+            .filter(c => c.category === cat.name)
+            .map(c => ({
+              id: Date.now() + Math.random(),
+              text: c.text,
+              confidence: c.confidence || 0.8,
+              reason: c.reason || '写真解析による分類',
+              timestamp: new Date().toLocaleTimeString(),
+              isPhoto: true
+            }));
+          
+          return {
+            ...cat,
+            items: [...cat.items, ...newItems]
+          };
+        })
+      );
+
+      console.log('分類結果処理完了');
+    } catch (error) {
+      console.error('分類結果処理エラー:', error);
+      throw new Error('分類結果の処理に失敗しました');
     }
   };
 
@@ -1321,6 +1400,15 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
       setIsAnalyzing(false);
     }
   };
+
+  // APIヘルスチェック
+  useEffect(() => {
+    const checkHealth = async () => {
+      const isHealthy = await checkApiHealth();
+      console.log('API状態:', isHealthy ? '正常' : '異常');
+    };
+    checkHealth();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 pb-24">

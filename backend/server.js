@@ -17,7 +17,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // ミドルウェア
 app.use(cors({
   origin: [
-    'https://store-visit-cr9p.onrender.com',  // フロントエンドURL
+    'https://store-visit-cr9p.onrender.com',  // 正しいフロントエンドURL
     'http://localhost:3000',                   // 開発環境
     'http://localhost:3001'                    // 開発環境
   ],
@@ -639,15 +639,21 @@ ${text.trim()}
   }
 });
 
-// 写真解析API
+// 写真解析API（デバッグ強化版）
 app.post('/api/analyze-photo', async (req, res) => {
   try {
-    console.log('=== 写真解析開始 ===');
+    console.log('=== 写真解析リクエスト受信 ===');
+    console.log('リクエストヘッダー:', req.headers);
+    console.log('リクエストボディの存在:', !!req.body);
+    console.log('imageプロパティの存在:', !!req.body?.image);
+    
     const { image } = req.body;
 
     if (!image) {
+      console.error('画像データが見つかりません');
       return res.status(400).json({ 
-        error: '写真データが必要です'
+        error: '写真データが必要です',
+        received: Object.keys(req.body || {})
       });
     }
 
@@ -660,14 +666,21 @@ app.post('/api/analyze-photo', async (req, res) => {
         base64Data = image;
       }
     } else {
+      console.error('不正な画像データ形式:', typeof image);
       return res.status(400).json({ 
-        error: '不正な画像データ形式です'
+        error: '不正な画像データ形式です',
+        type: typeof image
       });
     }
 
+    console.log('Base64データ取得完了, サイズ:', base64Data.length);
+
     try {
       const imageBuffer = Buffer.from(base64Data, 'base64');
+      console.log('画像バッファ作成完了, サイズ:', imageBuffer.length);
+      
       const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
+      console.log('画像処理完了');
 
       // デフォルトの解析結果
       let classifications = [{
@@ -677,8 +690,9 @@ app.post('/api/analyze-photo', async (req, res) => {
         reason: 'デフォルト分類'
       }];
 
-      // Gemini APIが利用可能な場合
+      // Gemini APIが利用可能な場合の解析
       if (process.env.GEMINI_API_KEY) {
+        console.log('Gemini API による写真解析を開始...');
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
           const result = await model.generateContent([
@@ -693,48 +707,143 @@ app.post('/api/analyze-photo', async (req, res) => {
 
           const response = await result.response;
           const content = response.text().trim();
+          console.log('Gemini解析レスポンス長:', content.length);
 
+          // JSONの抽出と解析
           const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
-            const geminiAnalysis = JSON.parse(jsonMatch[0]);
-            
-            if (geminiAnalysis.categories && geminiAnalysis.categories.length > 0) {
-              // Geminiの分類結果をそのまま使用
-              classifications = geminiAnalysis.categories.map(category => ({
-                category: category.category,
-                text: category.text,
-                confidence: category.confidence,
-                reason: category.reason || '画像解析による分類'
-              }));
+            try {
+              const geminiAnalysis = JSON.parse(jsonMatch[0]);
+              console.log('Gemini解析結果:', geminiAnalysis);
+              
+              if (geminiAnalysis.categories && geminiAnalysis.categories.length > 0) {
+                classifications = geminiAnalysis.categories.map(category => ({
+                  category: category.category,
+                  text: category.text,
+                  confidence: category.confidence,
+                  reason: category.reason || '画像解析による分類'
+                }));
+                console.log('分類結果を更新:', classifications.length, '件');
+              }
+            } catch (parseError) {
+              console.error('JSON解析エラー:', parseError);
+              console.error('問題のあるJSON:', jsonMatch[0].substring(0, 200));
             }
+          } else {
+            console.log('JSONパターンが見つかりませんでした');
+            console.log('レスポンス内容（最初の200文字）:', content.substring(0, 200));
           }
         } catch (geminiError) {
           console.error('Gemini解析エラー:', geminiError);
+          // デフォルト分類を使用
         }
+      } else {
+        console.log('Gemini APIキーが設定されていません');
       }
 
-      const photoId = Date.now().toString();
-      
-      res.json({
+      // 写真データを保存
+      const photoData = {
+        analysis: {
+          categories: classifications,
+          description: classifications.map(c => c.text).join(', ')
+        },
+        classifications: classifications,
+        processedImage: {
+          data: `data:image/jpeg;base64,${processedImage.optimized}`,
+          thumbnail: `data:image/jpeg;base64,${processedImage.thumbnail}`,
+          metadata: processedImage.metadata
+        }
+      };
+
+      const photoId = photoStorage.addPhoto(photoData);
+      console.log('写真を保存しました, ID:', photoId);
+
+      // レスポンスを返す
+      const response = {
+        success: true,
         id: photoId,
         classifications: classifications,
         processedImage: {
           data: `data:image/jpeg;base64,${processedImage.optimized}`,
+          thumbnail: `data:image/jpeg;base64,${processedImage.thumbnail}`,
           metadata: processedImage.metadata
         },
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        message: `写真を解析しました。${classifications.length}件の分類を検出。`,
+        geminiUsed: !!process.env.GEMINI_API_KEY
+      };
+
+      console.log('レスポンス送信:', {
+        id: response.id,
+        classificationsCount: response.classifications.length,
+        hasProcessedImage: !!response.processedImage.data,
+        messageLength: response.message.length
       });
 
-    } catch (error) {
-      console.error('写真処理エラー:', error);
-      throw error;
+      res.json(response);
+
+    } catch (imageProcessingError) {
+      console.error('画像処理エラー:', imageProcessingError);
+      res.status(500).json({ 
+        error: '画像処理に失敗しました',
+        details: imageProcessingError.message,
+        stack: process.env.NODE_ENV === 'development' ? imageProcessingError.stack : undefined
+      });
     }
 
   } catch (error) {
-    console.error('写真解析エラー:', error);
+    console.error('写真解析全体エラー:', error);
     res.status(500).json({ 
-      error: '処理エラー',
-      details: error.message
+      error: '写真解析中にエラーが発生しました',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// APIテスト用のヘルスチェックエンドポイント
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    geminiApiKeyConfigured: !!process.env.GEMINI_API_KEY,
+    photoStorageCount: photoStorage.getAllPhotos().length,
+    nodeEnv: process.env.NODE_ENV,
+    corsOrigins: [
+      'https://store-visit-cr9p.onrender.com',
+      'http://localhost:3000',
+      'http://localhost:3001'
+    ]
+  });
+});
+
+// 写真解析状況確認用のデバッグエンドポイント
+app.get('/api/debug/photo-analysis', (req, res) => {
+  try {
+    const photos = photoStorage.getAllPhotos();
+    res.json({
+      totalPhotos: photos.length,
+      photos: photos.map(photo => ({
+        id: photo.id,
+        timestamp: photo.timestamp,
+        classificationsCount: photo.classifications?.length || 0,
+        hasProcessedImage: !!photo.processedImage?.data,
+        analysisCategories: photo.analysis?.categories?.map(c => c.category) || []
+      })),
+      geminiApiKeyConfigured: !!process.env.GEMINI_API_KEY,
+      environment: process.env.NODE_ENV,
+      cors: {
+        allowedOrigins: [
+          'https://store-visit-cr9p.onrender.com',
+          'http://localhost:3000',
+          'http://localhost:3001'
+        ]
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
