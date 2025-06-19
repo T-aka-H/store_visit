@@ -954,7 +954,9 @@ function App() {
   // データエクスポート機能（CSV形式）
   const exportData = () => {
     try {
-      let csvContent = '\uFEFF';  // BOMを追加してExcelで文字化けを防ぐ
+      // BOMを追加してExcelで文字化けを防ぐ
+      const BOM = '\uFEFF';
+      let csvContent = BOM;
       
       // ヘッダー情報
       csvContent += '店舗視察レポート\n';
@@ -969,7 +971,7 @@ function App() {
           csvContent += '内容,信頼度,記録時刻,写真有無\n';
           
           category.items.forEach(item => {
-            const escapedText = `"${item.text.replace(/"/g, '""')}"`;  // カンマやダブルクォートをエスケープ
+            const escapedText = `"${item.text.replace(/"/g, '""')}"`;
             const confidence = item.confidence ? `${Math.round(item.confidence * 100)}%` : '-';
             const timestamp = item.timestamp || '-';
             const hasPhoto = item.isPhoto ? '有' : '無';
@@ -1015,21 +1017,57 @@ function App() {
         });
       }
 
-      // CSVファイルとして保存
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `店舗視察_${storeName || '未設定'}_${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      // ファイル名を生成
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const safeStoreName = (storeName || '未設定').replace(/[\\/:*?"<>|]/g, '_');
+      const fileName = `店舗視察_${safeStoreName}_${timestamp}.csv`;
 
-      alert('CSVファイルをエクスポートしました！');
+      try {
+        // Blobを作成してダウンロード
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        
+        if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+          // IEとEdge用の処理
+          window.navigator.msSaveOrOpenBlob(blob, fileName);
+        } else {
+          // その他のブラウザ用の処理
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(link);
+        }
+        
+        console.log('CSVエクスポート成功:', fileName);
+        alert('CSVファイルをエクスポートしました！');
+      } catch (downloadError) {
+        console.error('ダウンロードエラー:', downloadError);
+        
+        // 代替のダウンロード方法を試す
+        try {
+          const dataUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+          const link = document.createElement('a');
+          link.href = dataUrl;
+          link.download = fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          console.log('代替方法でのエクスポート成功:', fileName);
+          alert('CSVファイルをエクスポートしました！');
+        } catch (fallbackError) {
+          console.error('代替ダウンロード方法エラー:', fallbackError);
+          throw new Error('ファイルのダウンロードに失敗しました');
+        }
+      }
     } catch (error) {
       console.error('エクスポートエラー:', error);
-      alert('エクスポート中にエラーが発生しました');
+      alert(`エクスポート中にエラーが発生しました: ${error.message}`);
     }
   };
 
