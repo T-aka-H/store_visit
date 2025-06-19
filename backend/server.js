@@ -533,63 +533,82 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 app.post('/api/classify', async (req, res) => {
   try {
     console.log('=== AI分類リクエスト受信 ===');
-    const { text, categories } = req.body;
+    const { text } = req.body;
 
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'テキストが必要です' });
     }
 
+    console.log('分類対象テキスト:', text);
     let classifications = [];
     
     // Gemini 1.5 Flash APIを使用
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const categoriesText = categories.map(cat => cat.name).join(', ');
+      
+      const prompt = `以下のテキストから店舗視察に関連する情報を抽出し、適切なカテゴリに分類してください。
 
-      const prompt = `あなたは店舗視察データの分析エキスパートです。以下のテキストから複数の情報要素を抽出し、それぞれを適切なカテゴリに分類してください。
+分類カテゴリ:
+- 店舗情報（店舗名、場所、規模など）
+- 価格情報（商品価格、セール情報など）
+- 売り場情報（レイアウト、陳列方法など）
+- 客層・混雑度（来店客の特徴、混雑状況など）
+- 商品・品揃え（取扱商品、在庫状況など）
+- 店舗環境（店舗の雰囲気、清潔さなど）
 
-テキスト: "${text.trim()}"
+分析対象テキスト:
+${text.trim()}
 
-利用可能なカテゴリ: ${categoriesText}
+以下のJSON形式で回答してください:
+{
+  "classifications": [
+    {
+      "category": "価格情報",
+      "text": "トマト28円",
+      "confidence": 0.9,
+      "reason": "商品価格の明確な記載"
+    }
+  ]
+}`;
 
-以下のJSON配列形式で回答してください:
-[
-  {
-    "category": "価格情報",
-    "text": "トマト28円",
-    "confidence": 0.9,
-    "reason": "商品価格の明確な記載"
-  }
-]`;
-
+      console.log('Geminiリクエスト送信...');
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const content = response.text().trim();
+      console.log('Gemini応答:', content);
 
       try {
-        const jsonMatch = content.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const jsonArray = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(jsonArray)) {
-            classifications = jsonArray.filter(item => 
-              item.category && 
-              item.text && 
-              categories.some(cat => cat.name === item.category)
-            );
+        // まずJSONとして解析を試みる
+        let parsedResult;
+        try {
+          parsedResult = JSON.parse(content);
+        } catch (initialParseError) {
+          // 失敗した場合、JSONパターンを探して抽出を試みる
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            throw new Error('Gemini応答からJSONを抽出できませんでした');
           }
+          parsedResult = JSON.parse(jsonMatch[0]);
+        }
+
+        if (parsedResult.classifications && Array.isArray(parsedResult.classifications)) {
+          classifications = parsedResult.classifications;
+        } else {
+          throw new Error('Gemini応答が期待された形式ではありません');
         }
       } catch (parseError) {
         console.error('Gemini応答のパースエラー:', parseError);
-        throw new Error('Gemini応答のパースに失敗しました');
+        console.error('問題のある応答:', content);
+        throw new Error('Gemini応答のパースに失敗しました: ' + parseError.message);
       }
     } catch (geminiError) {
       console.error('Gemini API エラー:', geminiError);
-      throw new Error('Gemini APIでの分類に失敗しました');
+      throw new Error('Gemini APIでの分類に失敗しました: ' + geminiError.message);
     }
 
-    // Gemini分類が失敗した場合のフォールバック
+    // 分類結果が空の場合はキーワードベース分類を使用
     if (classifications.length === 0) {
-      console.log('Gemini分類失敗、キーワードベース分類を使用');
+      console.log('Gemini分類結果が空のため、キーワードベース分類を使用');
       classifications = performKeywordBasedClassification(text);
     }
 
@@ -605,6 +624,7 @@ app.post('/api/classify', async (req, res) => {
       return unique;
     }, []);
 
+    console.log('最終分類結果:', uniqueClassifications);
     res.json({
       message: '分類が完了しました',
       classifications: uniqueClassifications
