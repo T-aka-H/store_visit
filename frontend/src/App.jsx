@@ -1396,7 +1396,7 @@ function App() {
           </div>
         </div>
 
-        {/* 分類結果の表示を更新 */}
+        {/* 分類結果の表示（テーブル形式） */}
         <div className="mt-8">
           {categories.map(category => (
             <ClassificationTable
@@ -1405,48 +1405,6 @@ function App() {
               items={category.items}
             />
           ))}
-        </div>
-
-        {/* カテゴリ別結果表示 */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            📊 分類結果
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {categories.map((category, index) => (
-              <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
-                <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                  <span className="text-xl">
-                    {category.name.includes('価格') ? '💰' : 
-                     category.name.includes('売り場') ? '🏬' : 
-                     category.name.includes('客層') ? '👥' : 
-                     category.name.includes('商品') ? '📦' : '🏪'}
-                  </span>
-                  {category.name}
-                </h3>
-                <div className="space-y-2">
-                  {category.items.length > 0 ? (
-                    category.items.map((item, itemIndex) => (
-                      <div key={itemIndex} className={`rounded-lg p-3 border-l-4 ${item.isPhoto ? 'bg-blue-50 border-blue-400' : 'bg-gray-50 border-blue-400'}`}>
-                        <p className="text-gray-700 leading-relaxed text-sm">{item.text}</p>
-                        <div className="mt-2 flex justify-between items-center text-xs text-gray-500">
-                          <span>信頼度: {Math.round(item.confidence * 100)}%</span>
-                          <span>{item.timestamp}</span>
-                        </div>
-                        {item.reason && (
-                          <p className="mt-1 text-xs text-gray-500 italic">
-                            理由: {item.reason}
-                          </p>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-400 italic text-center py-6 text-sm">まだデータがありません</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* AIインサイト生成 */}
