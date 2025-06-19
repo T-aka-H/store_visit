@@ -390,37 +390,26 @@ function convertToCSVFormat(classifications, storeName = '', photos = []) {
   };
 }
 
-// 写真処理とサムネイル生成
+// 高速化された画像処理関数
 async function processPhotoAndCreateThumbnail(imageBuffer) {
   try {
-    // オリジナル画像の最適化
-    const optimizedImage = await sharp(imageBuffer)
-      .rotate()  // EXIF情報に基づいて自動回転
-      .jpeg({ quality: 90 })
-      .toBuffer();
-
-    // サムネイルの生成
-    const thumbnail = await sharp(imageBuffer)
+    // 高速化：品質を下げて処理速度向上
+    const optimized = await sharp(imageBuffer)
       .rotate()
-      .resize(THUMBNAIL_CONFIG.width, THUMBNAIL_CONFIG.height, {
-        fit: THUMBNAIL_CONFIG.fit,
-        position: THUMBNAIL_CONFIG.position
+      .resize(1200, 800, { // サイズ制限
+        fit: 'inside',
+        withoutEnlargement: true
       })
-      .jpeg({ quality: THUMBNAIL_CONFIG.quality })
+      .jpeg({ 
+        quality: 75,  // 品質下げて高速化
+        progressive: true
+      })
       .toBuffer();
-
-    // 画像情報の取得
-    const metadata = await sharp(imageBuffer).metadata();
 
     return {
-      optimized: optimizedImage.toString('base64'),
-      thumbnail: thumbnail.toString('base64'),
+      optimized: optimized.toString('base64'),
       metadata: {
-        width: metadata.width,
-        height: metadata.height,
-        format: metadata.format,
-        size: optimizedImage.length,
-        thumbnailSize: thumbnail.length
+        size: optimized.length
       }
     };
   } catch (error) {
@@ -639,164 +628,143 @@ ${text.trim()}
   }
 });
 
-// 写真解析API（デバッグ強化版）
+// 高速化された写真解析プロンプト
+const FAST_PHOTO_ANALYSIS_PROMPT = `写真から店舗視察の重要情報を素早く抽出してください。
+
+以下のカテゴリで分類：
+- 店舗情報: 店舗名、ブランド
+- 価格情報: 価格、セール情報  
+- 商品・品揃え: 商品の種類
+- 店舗環境: 店内の様子
+- 売り場情報: 陳列、レイアウト
+- 客層・混雑度: 客の様子
+
+簡潔なJSON形式で回答：
+{
+  "categories": [
+    {
+      "category": "店舗環境",
+      "text": "明るく清潔な店内",
+      "confidence": 0.8
+    }
+  ]
+}`;
+
+// 高速化された写真解析API
 app.post('/api/analyze-photo', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
-    console.log('=== 写真解析リクエスト受信 ===');
-    console.log('リクエストヘッダー:', req.headers);
-    console.log('リクエストボディの存在:', !!req.body);
-    console.log('imageプロパティの存在:', !!req.body?.image);
-    
-    const { image } = req.body;
+    console.log('🚀 高速写真解析開始');
+    const { image, fast_mode } = req.body;
 
     if (!image) {
-      console.error('画像データが見つかりません');
-      return res.status(400).json({ 
-        error: '写真データが必要です',
-        received: Object.keys(req.body || {})
-      });
+      return res.status(400).json({ error: '画像データが必要です' });
     }
 
     // Base64データの抽出
-    let base64Data;
-    if (typeof image === 'string') {
-      if (image.includes('base64,')) {
-        base64Data = image.split('base64,')[1];
-      } else {
-        base64Data = image;
-      }
+    const base64Data = image.includes('base64,') ? image.split('base64,')[1] : image;
+    
+    // 画像処理の簡略化（高速モード）
+    let processedImage;
+    if (fast_mode) {
+      // 高速モード：最小限の処理
+      processedImage = {
+        data: image, // オリジナルをそのまま使用
+        metadata: { size: base64Data.length }
+      };
     } else {
-      console.error('不正な画像データ形式:', typeof image);
-      return res.status(400).json({ 
-        error: '不正な画像データ形式です',
-        type: typeof image
-      });
-    }
-
-    console.log('Base64データ取得完了, サイズ:', base64Data.length);
-
-    try {
+      // 通常モード：高品質処理
       const imageBuffer = Buffer.from(base64Data, 'base64');
-      console.log('画像バッファ作成完了, サイズ:', imageBuffer.length);
-      
-      const processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
-      console.log('画像処理完了');
-
-      // デフォルトの解析結果
-      let classifications = [{
-        category: '店舗環境',
-        text: '店舗の写真が追加されました',
-        confidence: 0.7,
-        reason: 'デフォルト分類'
-      }];
-
-      // Gemini APIが利用可能な場合の解析
-      if (process.env.GEMINI_API_KEY) {
-        console.log('Gemini API による写真解析を開始...');
-        try {
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const result = await model.generateContent([
-            { text: PHOTO_ANALYSIS_PROMPT },
-            {
-              inlineData: {
-                mimeType: "image/jpeg",
-                data: base64Data
-              }
-            }
-          ]);
-
-          const response = await result.response;
-          const content = response.text().trim();
-          console.log('Gemini解析レスポンス長:', content.length);
-
-          // JSONの抽出と解析
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try {
-              const geminiAnalysis = JSON.parse(jsonMatch[0]);
-              console.log('Gemini解析結果:', geminiAnalysis);
-              
-              if (geminiAnalysis.categories && geminiAnalysis.categories.length > 0) {
-                classifications = geminiAnalysis.categories.map(category => ({
-                  category: category.category,
-                  text: category.text,
-                  confidence: category.confidence,
-                  reason: category.reason || '画像解析による分類'
-                }));
-                console.log('分類結果を更新:', classifications.length, '件');
-              }
-            } catch (parseError) {
-              console.error('JSON解析エラー:', parseError);
-              console.error('問題のあるJSON:', jsonMatch[0].substring(0, 200));
-            }
-          } else {
-            console.log('JSONパターンが見つかりませんでした');
-            console.log('レスポンス内容（最初の200文字）:', content.substring(0, 200));
-          }
-        } catch (geminiError) {
-          console.error('Gemini解析エラー:', geminiError);
-          // デフォルト分類を使用
-        }
-      } else {
-        console.log('Gemini APIキーが設定されていません');
-      }
-
-      // 写真データを保存
-      const photoData = {
-        analysis: {
-          categories: classifications,
-          description: classifications.map(c => c.text).join(', ')
-        },
-        classifications: classifications,
-        processedImage: {
-          data: `data:image/jpeg;base64,${processedImage.optimized}`,
-          thumbnail: `data:image/jpeg;base64,${processedImage.thumbnail}`,
-          metadata: processedImage.metadata
-        }
-      };
-
-      const photoId = photoStorage.addPhoto(photoData);
-      console.log('写真を保存しました, ID:', photoId);
-
-      // レスポンスを返す
-      const response = {
-        success: true,
-        id: photoId,
-        classifications: classifications,
-        processedImage: {
-          data: `data:image/jpeg;base64,${processedImage.optimized}`,
-          thumbnail: `data:image/jpeg;base64,${processedImage.thumbnail}`,
-          metadata: processedImage.metadata
-        },
-        timestamp: new Date().toISOString(),
-        message: `写真を解析しました。${classifications.length}件の分類を検出。`,
-        geminiUsed: !!process.env.GEMINI_API_KEY
-      };
-
-      console.log('レスポンス送信:', {
-        id: response.id,
-        classificationsCount: response.classifications.length,
-        hasProcessedImage: !!response.processedImage.data,
-        messageLength: response.message.length
-      });
-
-      res.json(response);
-
-    } catch (imageProcessingError) {
-      console.error('画像処理エラー:', imageProcessingError);
-      res.status(500).json({ 
-        error: '画像処理に失敗しました',
-        details: imageProcessingError.message,
-        stack: process.env.NODE_ENV === 'development' ? imageProcessingError.stack : undefined
-      });
+      processedImage = await processPhotoAndCreateThumbnail(imageBuffer);
+      processedImage.data = `data:image/jpeg;base64,${processedImage.optimized}`;
     }
+
+    // AI解析（高速化）
+    let classifications = [{
+      category: '店舗環境',
+      text: '店舗の写真が追加されました',
+      confidence: 0.7
+    }];
+
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        console.log('⚡ Gemini高速解析開始');
+        const model = genAI.getGenerativeModel({ 
+          model: "gemini-1.5-flash",
+          generationConfig: {
+            maxOutputTokens: 500, // トークン数制限で高速化
+            temperature: 0.1 // 確定的な出力で高速化
+          }
+        });
+        
+        const prompt = fast_mode ? FAST_PHOTO_ANALYSIS_PROMPT : PHOTO_ANALYSIS_PROMPT;
+        
+        const result = await model.generateContent([
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: base64Data
+            }
+          }
+        ]);
+
+        const response = await result.response;
+        const content = response.text().trim();
+        
+        // JSON抽出（高速化）
+        const jsonMatch = content.match(/\{[\s\S]*?\}/);
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.categories && Array.isArray(parsed.categories)) {
+              classifications = parsed.categories;
+              console.log('✅ Gemini解析成功:', classifications.length, '件');
+            }
+          } catch (parseError) {
+            console.log('⚠️ JSON解析失敗、デフォルト分類を使用');
+          }
+        }
+      } catch (geminiError) {
+        console.log('⚠️ Gemini解析失敗、デフォルト分類を使用:', geminiError.message);
+      }
+    }
+
+    // 写真データの簡略化（メタデータ削除）
+    const photoData = {
+      classifications: classifications,
+      processedImage: {
+        data: processedImage.data
+        // thumbnailとmetadataを削除
+      }
+    };
+
+    const photoId = photoStorage.addPhoto(photoData);
+    const processingTime = Date.now() - startTime;
+    
+    console.log(`🎯 写真解析完了: ${processingTime}ms`);
+
+    res.json({
+      success: true,
+      id: photoId,
+      classifications: classifications,
+      processedImage: {
+        data: processedImage.data
+      },
+      timestamp: new Date().toISOString(),
+      message: `写真解析完了 (${processingTime}ms)`,
+      processingTime: processingTime
+    });
 
   } catch (error) {
-    console.error('写真解析全体エラー:', error);
+    const processingTime = Date.now() - startTime;
+    console.error(`❌ 写真解析エラー (${processingTime}ms):`, error);
+    
     res.status(500).json({ 
-      error: '写真解析中にエラーが発生しました',
+      error: '写真解析に失敗しました',
       details: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      processingTime: processingTime
     });
   }
 });
@@ -974,7 +942,7 @@ app.post('/api/export-csv', async (req, res) => {
   }
 });
 
-// 単一写真のダウンロードAPI
+// 簡略化された写真ダウンロードAPI
 app.get('/api/photos/:id/download', (req, res) => {
   try {
     const { id } = req.params;
@@ -984,55 +952,29 @@ app.get('/api/photos/:id/download', (req, res) => {
       return res.status(404).json({ error: '写真が見つかりません' });
     }
 
-    // Base64データをバッファに変換
+    // 画像データのみを返す（JSONファイル削除）
     const imageData = photo.processedImage.data.split('base64,')[1];
     const imageBuffer = Buffer.from(imageData, 'base64');
 
-    // メタデータをJSONファイルとして準備
-    const metadata = {
-      id: photo.id,
-      timestamp: photo.timestamp,
-      classifications: photo.classifications,
-      metadata: photo.processedImage.metadata
-    };
-    const metadataBuffer = Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8');
-
-    // ZIPファイルの作成
-    const archive = archiver('zip', {
-      zlib: { level: 9 } // 最大圧縮レベル
-    });
-
-    // ヘッダーの設定
-    res.attachment(`store_visit_photo_${id}.zip`);
-    archive.pipe(res);
-
-    // 写真とメタデータをZIPに追加
-    archive.append(imageBuffer, { name: `store_visit_photo_${id}.jpg` });
-    archive.append(metadataBuffer, { name: `metadata_${id}.json` });
-
-    // CSVサマリーの追加
-    const storeInfo = photo.classifications.find(c => c.category === '店舗情報');
-    const storeName = storeInfo ? storeInfo.text : '不明';
-    const csvContent = `ID,撮影日時,店舗名,分類情報\n${id},${photo.timestamp},"${storeName}","${photo.classifications.map(c => `${c.category}: ${c.text} (信頼度: ${c.confidence})`).join('; ')}"`;
-    archive.append(Buffer.from(csvContent, 'utf-8'), { name: 'summary.csv' });
-
-    archive.finalize();
+    // 直接画像ファイルとして返す
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="store_photo_${id}.jpg"`);
+    res.send(imageBuffer);
 
   } catch (error) {
     console.error('写真ダウンロードエラー:', error);
     res.status(500).json({ 
-      error: '写真のダウンロード中にエラーが発生しました',
+      error: '写真のダウンロードに失敗しました',
       details: error.message
     });
   }
 });
 
-// 複数写真のZIPダウンロードAPI
+// 一括ダウンロードAPI（簡略化）
 app.post('/api/photos/download-multiple', (req, res) => {
   try {
     const { photoIds } = req.body;
     
-    // 写真の取得
     let targetPhotos = [];
     if (photoIds && Array.isArray(photoIds)) {
       targetPhotos = photoIds.map(id => photoStorage.getPhoto(id)).filter(Boolean);
@@ -1044,61 +986,23 @@ app.post('/api/photos/download-multiple', (req, res) => {
       return res.status(400).json({ error: 'ダウンロードする写真がありません' });
     }
 
-    // ZIPファイルの作成
-    const archive = archiver('zip', {
-      zlib: { level: 9 }
-    });
-
-    // ヘッダーの設定
-    res.attachment('store_visit_photos.zip');
+    const archive = archiver('zip', { zlib: { level: 6 } }); // 圧縮レベル下げて高速化
+    res.attachment('store_photos.zip');
     archive.pipe(res);
 
-    // CSVサマリーの準備
-    let csvContent = 'ID,撮影日時,店舗名,分類情報\n';
-
-    // 各写真の処理
-    targetPhotos.forEach(photo => {
-      // 写真データの追加
+    // 写真のみをZIPに追加（メタデータファイル削除）
+    targetPhotos.forEach((photo, index) => {
       const imageData = photo.processedImage.data.split('base64,')[1];
       const imageBuffer = Buffer.from(imageData, 'base64');
-      archive.append(imageBuffer, { name: `photos/store_visit_photo_${photo.id}.jpg` });
-
-      // メタデータの追加
-      const metadata = {
-        id: photo.id,
-        timestamp: photo.timestamp,
-        classifications: photo.classifications,
-        metadata: photo.processedImage.metadata
-      };
-      archive.append(
-        Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8'),
-        { name: `metadata/metadata_${photo.id}.json` }
-      );
-
-      // CSVサマリーの行を追加
-      const storeInfo = photo.classifications.find(c => c.category === '店舗情報');
-      const storeName = storeInfo ? storeInfo.text : '不明';
-      csvContent += `${photo.id},${photo.timestamp},"${storeName}","${photo.classifications.map(c => `${c.category}: ${c.text} (信頼度: ${c.confidence})`).join('; ')}"\n`;
-    });
-
-    // CSVサマリーの追加
-    archive.append(Buffer.from(csvContent, 'utf-8'), { name: 'summary.csv' });
-
-    // エラーハンドリング
-    archive.on('error', (err) => {
-      console.error('ZIPファイル作成エラー:', err);
-      res.status(500).json({ 
-        error: 'ZIPファイルの作成中にエラーが発生しました',
-        details: err.message
-      });
+      archive.append(imageBuffer, { name: `store_photo_${index + 1}.jpg` });
     });
 
     archive.finalize();
 
   } catch (error) {
-    console.error('複数写真ダウンロードエラー:', error);
+    console.error('一括ダウンロードエラー:', error);
     res.status(500).json({ 
-      error: '写真のダウンロード中にエラーが発生しました',
+      error: '写真のダウンロードに失敗しました',
       details: error.message 
     });
   }
