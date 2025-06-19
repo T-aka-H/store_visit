@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin } from 'lucide-react';
+import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin, Square, PenTool } from 'lucide-react';
 
 // API設定
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
@@ -1481,427 +1481,173 @@ Gemini 1.5 Flash音声認識を使用するには、バックエンド側で以�
     <div className="min-h-screen bg-gray-100">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* ヘッダー */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-700 mb-3">
-            🏪 店舗視察AI
-          </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
-            音声録音と写真撮影で効率的な店舗視察を実現。AIが自動で音声・写真を認識・分類し、ビジネスインサイトを生成します。
-          </p>
-        </div>
-
-        {/* 店舗名入力 */}
-        <div className="mb-6">
-          <label className="block text-base font-medium text-gray-700 mb-2">
-            📍 視察店舗名
-          </label>
-          <div className="relative">
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">店舗視察アプリ</h1>
+          <div className="flex items-center gap-4">
             <input
               type="text"
               value={storeName}
               onChange={(e) => setStoreName(e.target.value)}
-              placeholder="音声で「今日はサミット野沢龍雲寺店の視察です」等と話すか、直接入力してください"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400"
+              placeholder="店舗名を入力"
+              className="px-4 py-2 border rounded-lg flex-grow"
             />
-            {storeName && (
-              <div className="absolute right-3 top-3">
-                <span className="inline-flex items-center px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
-                  <span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span>
-                  音声抽出
-                </span>
-              </div>
-            )}
           </div>
-          <p className="mt-1 text-xs text-gray-500">
-            💡 ヒント: 「今日は〇〇店の視察です」「ここは〇〇店です」等と話すと自動で店舗名が設定されます
-          </p>
-        </div>
+        </header>
 
-        {/* 写真撮影機能 */}
-        <PhotoCapture 
-          onPhotoAdded={() => {}}
-          categories={categories}
-          setCategories={setCategories}
-          isProcessing={isAnalyzing}
-          storeName={storeName}
-          photos={photos}
-          setPhotos={setPhotos}
-          downloadPhoto={downloadPhoto}
-          downloadAllPhotos={downloadAllPhotos}
-        />
-
-        {/* コントロールボタン - 上部（安全な機能のみ） */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          {/* テキスト入力 */}
-          <button
-            onClick={() => setShowTextInput(!showTextInput)}
-            disabled={isWebSpeechRecording}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
-          >
-            <MessageCircle size={20} />
-            <span className="text-sm font-medium">テキスト入力</span>
-          </button>
-
-          {/* 音声認識結果を分類 */}
-          <button
-            onClick={async () => {
-              if (!transcript) {
-                alert('音声認識結果がありません。先に音声を認識してください。');
-                return;
-              }
-              setIsProcessing(true);
-              try {
-                await performAIClassification(transcript, categories, setCategories);
-              } catch (error) {
-                console.error('分類エラー:', error);
-                alert('分類処理中にエラーが発生しました: ' + error.message);
-              } finally {
-                setIsProcessing(false);
-              }
-            }}
-            disabled={isWebSpeechRecording || isProcessing || !transcript}
-            className="flex items-center justify-center gap-2 px-4 py-4 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm hover:shadow-md min-h-[52px] disabled:opacity-50"
-          >
-            <ListTree size={20} />
-            <span className="text-sm font-medium">
-              {isProcessing ? '分類中...' : '音声認識結果を分類'}
-            </span>
-          </button>
-        </div>
-
-        {/* 音声アップロードセクション */}
-        <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-          <h3 className="text-base font-medium text-gray-700 mb-3 flex items-center gap-2">
-            🎵 音声ファイルアップロード
-            <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
-              Gemini 1.5 Flash
-            </span>
-          </h3>
+        {/* 音声認識セクション */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Mic className="text-blue-600" />
+            音声メモ
+          </h2>
           
-          {/* 機能説明 */}
-          <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-blue-600">🤖</span>
-              <span className="font-medium text-blue-800 text-sm">Gemini AI音声認識</span>
-            </div>
-            <p className="text-blue-700 text-xs mb-2">
-              アップロードされた音声ファイルは、Gemini 1.5 Flash AIモデルで高精度な文字起こしを行います。
-            </p>
-          </div>
-          
-          <div className="flex flex-col gap-3">
-            <input
-              type="file"
-              accept=".m4a,.mp3,.wav,.aac,.webm,.ogg,audio/*"
-              onChange={handleAudioUpload}
-              disabled={isProcessing || isWebSpeechRecording}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white text-gray-800 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
-            />
-            <div className="text-xs text-gray-500 space-y-1">
-              <div>🎯 <strong>AI認識:</strong> Gemini 1.5 Flash（高精度・多言語対応）</div>
-              <div>📱 <strong>対応形式:</strong> M4A、MP3、WAV、AAC、WebM、OGG</div>
-              <div>📁 <strong>iPhone:</strong> 「ブラウズ」→「ファイル」アプリからファイルを選択</div>
-              <div>⚖️ <strong>制限:</strong> ファイルサイズ50MB以下推奨</div>
-              <div className="flex items-center gap-2">
-                <span>🔄 <strong>代替:</strong> リアルタイム音声認識（右下の青いマイクボタン）</span>
-                <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded">Web Speech API</span>
-              </div>
-            </div>
-          </div>
-          {uploadedAudio && (
-            <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
-              <div className="flex items-center gap-2">
-                <span className="text-green-600">✓</span>
-                <span className="text-green-700 text-sm font-medium">
-                  音声ファイル準備完了: {uploadedAudio.name}
-                </span>
-                <span className="text-gray-500 text-xs">
-                  ({(uploadedAudio.size / 1024 / 1024).toFixed(1)}MB)
-                </span>
-              </div>
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={processUploadedAudio}
-                  disabled={isProcessing}
-                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 transition-all duration-200 text-sm flex items-center gap-2"
-                >
-                  <span>🤖</span>
-                  <span>{isProcessing ? 'Gemini処理中...' : 'Gemini音声認識開始'}</span>
-                </button>
-                <button
-                  onClick={() => setUploadedAudio(null)}
-                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all duration-200 text-sm"
-                >
-                  キャンセル
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 浮遊録音ボタン */}
-        <div className="fixed bottom-6 right-6 z-50">
-          {isWebSpeechSupported ? (
+          {/* 音声認識コントロール */}
+          <div className="flex items-center gap-4 mb-4">
             <button
-              onClick={isWebSpeechRecording ? stopWebSpeechRecording : startWebSpeechRecording}
+              onClick={toggleRecording}
               disabled={isProcessing}
-              className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
-                isWebSpeechRecording 
-                  ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
-                  : 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-blue-700'
-              } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} text-blue-900`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+                isRecording
+                  ? 'bg-red-600 hover:bg-red-700 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              {isWebSpeechRecording ? <MicOff size={24} /> : <Mic size={24} />}
+              {isRecording ? (
+                <>
+                  <Square className="animate-pulse" />
+                  録音停止
+                </>
+              ) : (
+                <>
+                  <Mic />
+                  録音開始
+                </>
+              )}
             </button>
-          ) : (
-            <div className="w-16 h-16 rounded-full shadow-lg flex items-center justify-center bg-gray-400 text-white">
-              <HelpCircle size={24} />
+
+            {/* テキスト入力切り替え */}
+            <button
+              onClick={() => setShowTextInput(!showTextInput)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
+            >
+              <PenTool />
+              テキスト入力
+            </button>
+          </div>
+
+          {/* テキスト入力エリア */}
+          {showTextInput && (
+            <div className="mb-4">
+              <textarea
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                placeholder="テキストを入力..."
+                className="w-full h-32 px-4 py-2 border rounded-lg resize-none"
+              />
+              <button
+                onClick={handleTextSubmit}
+                disabled={!textInput.trim() || isProcessing}
+                className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                テキストを追加
+              </button>
             </div>
           )}
-        </div>
 
-        {/* 浮遊カメラボタン */}
-        <div className="fixed bottom-6 left-6 z-50">
-          <button
-            onClick={() => {
-              // エラーハンドリング付きでcapturePhotoを呼び出し
-              capturePhoto().catch(error => {
-                console.error('📸 ボタンクリックエラー:', error);
-                alert(`写真撮影でエラーが発生しました: ${error.message || '不明なエラー'}`);
-              });
-            }}
-            disabled={isAnalyzing || isProcessing}
-            className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
-              isAnalyzing 
-                ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
-                : 'bg-red-100 hover:bg-red-200 hover:scale-110 border-red-700'
-            } ${isProcessing || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''} text-red-900`}
-            title={isAnalyzing ? 'AI解析中...' : '写真撮影'}
-          >
-            {isAnalyzing ? <Camera size={24} className="animate-pulse" /> : <Camera size={24} />}
-          </button>
-        </div>
-
-        {/* Web Speech API 状態表示 */}
-        {!isWebSpeechSupported && (
-          <div className="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-            <div className="flex items-center gap-2">
-              <HelpCircle size={16} className="text-yellow-600" />
-              <span className="text-yellow-700 text-sm">
-                このブラウザでは音声認識機能が利用できません。Chrome、Safari、Edgeをお使いください。
-              </span>
+          {/* 文字起こし結果 */}
+          <div className="mb-4">
+            <h3 className="font-semibold mb-2">文字起こし結果:</h3>
+            <div className="bg-gray-50 p-4 rounded-lg whitespace-pre-wrap">
+              {transcript || '（ここに文字起こし結果が表示されます）'}
             </div>
-          </div>
-        )}
-
-        {/* テキスト入力モード */}
-        {showTextInput && (
-          <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-            <h3 className="text-base font-medium text-gray-700 mb-3">テキスト入力モード</h3>
-            <textarea
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              placeholder="視察内容をテキストで入力してください..."
-              className="w-full h-32 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-800 placeholder-gray-400 resize-none"
-            />
-            <button
-              onClick={processTextInput}
-              disabled={!textInput.trim() || isProcessing}
-              className="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 text-sm"
-            >
-              {isProcessing ? '処理中...' : 'テキストを分析'}
-            </button>
-          </div>
-        )}
-
-        {/* 処理状況表示 */}
-        {(isRecording || isProcessing || isWebSpeechRecording) && (
-          <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="flex items-center gap-3">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
-              <span className="text-blue-700 font-medium text-sm">
-                {isWebSpeechRecording ? '🎤 音声認識中... リアルタイムで文字起こししています' :
-                 isRecording ? '🎤 録音中... 録音停止ボタンを押して終了してください' : 
-                 '🔄 音声を処理中... しばらくお待ちください'}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* 音声認識結果 */}
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
-              🎤 音声認識結果
-            </h2>
-            <button
-              onClick={async () => {
-                if (!transcript) {
-                  alert('音声認識結果がありません。先に音声を認識してください。');
-                  return;
-                }
-                setIsProcessing(true);
-                try {
-                  await performAIClassification(transcript, categories, setCategories);
-                  alert('分類が完了しました！');
-                } catch (error) {
-                  console.error('分類エラー:', error);
-                  alert('分類処理中にエラーが発生しました: ' + error.message);
-                } finally {
-                  setIsProcessing(false);
-                }
-              }}
-              disabled={isWebSpeechRecording || isProcessing || !transcript}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50"
-            >
-              <ListTree size={16} />
-              <span className="text-sm font-medium">
-                {isProcessing ? '分類中...' : '音声認識結果を分類'}
-              </span>
-            </button>
-          </div>
-          <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-            {transcript ? (
-              <pre className="whitespace-pre-wrap text-gray-700 text-sm leading-relaxed font-sans">
-                {transcript}
-              </pre>
-            ) : (
-              <p className="text-gray-400 italic text-center py-6">
-                音声認識結果がここに表示されます
-              </p>
-            )}
           </div>
         </div>
 
-        <ClassificationSection categories={categories} />
-
-        {/* AIインサイト生成 */}
-        {(categories.some(cat => cat.items.length > 0) || transcript || photos.length > 0) && (
-          <div className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
-                🤖 AIインサイト
-              </h2>
-              <button
-                onClick={generateInsights}
-                disabled={isProcessing}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md"
-              >
-                <Brain size={16} />
-                <span className="text-sm font-medium">
-                  {isProcessing ? '生成中...' : 'インサイト生成'}
-                </span>
-              </button>
+        {/* カテゴリ一覧 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          {categories.map((category) => (
+            <div key={category.name} className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-semibold mb-4">{category.name}</h3>
+              <ul className="space-y-2">
+                {category.items.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-start gap-2 p-2 bg-gray-50 rounded"
+                  >
+                    <span className="flex-grow">{item.text}</span>
+                    {item.confidence && (
+                      <span className="text-sm text-gray-500">
+                        {Math.round(item.confidence * 100)}%
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-              {insights ? (
-                <div className="prose prose-sm max-w-none">
-                  <div dangerouslySetInnerHTML={{ __html: insights.replace(/\n/g, '<br/>') }} />
-                </div>
-              ) : (
-                <p className="text-gray-400 italic text-center py-6">
-                  「インサイト生成」ボタンを押すと、AIが分類結果を分析してインサイトを生成します
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+          ))}
+        </div>
 
-        {/* Q&A セクション */}
-        {(categories.some(cat => cat.items.length > 0) || transcript || photos.length > 0) && (
-          <div className="mb-8">
-            <h2 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              ❓ 質問応答
-            </h2>
-            <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-              <div className="flex gap-2 mb-4">
-                <input
-                  type="text"
-                  value={questionInput}
-                  onChange={(e) => setQuestionInput(e.target.value)}
-                  placeholder="視察データについて質問してください..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  disabled={isAnswering}
+        {/* 写真一覧 */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Camera className="text-blue-600" />
+            写真一覧
+          </h2>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {photos.map((photo) => (
+              <div key={photo.id} className="bg-gray-50 rounded-lg p-4">
+                <img
+                  src={photo.base64}
+                  alt={photo.description}
+                  className="w-full h-48 object-cover rounded-lg mb-2"
                 />
+                <div className="text-sm">
+                  <p className="font-semibold">{photo.category}</p>
+                  <p className="text-gray-600">{photo.description}</p>
+                  <p className="text-gray-500">{photo.timestamp}</p>
+                </div>
                 <button
-                  onClick={askQuestion}
-                  disabled={!questionInput.trim() || isAnswering}
-                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md"
+                  onClick={() => downloadPhoto(photo)}
+                  className="mt-2 w-full px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded"
                 >
-                  <span className="text-sm font-medium">
-                    {isAnswering ? '回答中...' : '質問する'}
-                  </span>
+                  ダウンロード
                 </button>
               </div>
-              <div className="space-y-4">
-                {qaPairs.map((qa, index) => (
-                  <div key={index} className="border-b border-gray-100 last:border-0 pb-4 last:pb-0">
-                    <p className="text-gray-800 font-medium mb-2">Q: {qa.question}</p>
-                    <p className="text-gray-600 text-sm">A: {qa.answer}</p>
-                    <p className="text-gray-400 text-xs mt-1">{qa.timestamp}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 最下部のボタンセクション（重要な操作） */}
-        <div className="mt-12 pt-6 border-t border-gray-200">
-          <div className="bg-yellow-50 rounded-lg p-4 mb-4 border border-yellow-200">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-yellow-600">⚠️</span>
-              <span className="font-medium text-yellow-800">注意</span>
-            </div>
-            <p className="text-yellow-700 text-sm">
-              以下のボタンは重要な操作です。データの保存やクリアを行う前に、必要な情報が含まれているか確認してください。
-            </p>
+            ))}
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* 写真全保存 */}
-            {photos.length > 0 && (
-              <button
-                onClick={downloadAllPhotos}
-                disabled={isProcessing}
-                className="flex items-center justify-center gap-2 px-6 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md min-h-[56px] font-medium"
-                title={`${photos.length}枚の写真をZIPでダウンロード`}
-              >
-                <Download size={20} />
-                <span>📸 写真を全保存</span>
-              </button>
-            )}
-
-            {/* Excel出力 */}
+          {photos.length > 0 && (
             <button
-              onClick={exportToExcel}
-              disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
-              className="flex items-center justify-center gap-2 px-6 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-all duration-200 shadow-sm hover:shadow-md min-h-[56px] font-medium"
+              onClick={downloadAllPhotos}
+              className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2"
             >
-              <Download size={20} />
-              <span>📊 視察レポートをExcel出力</span>
+              <Download />
+              全ての写真をダウンロード
             </button>
-
-            {/* データクリア */}
-            <button
-              onClick={() => {
-                if (window.confirm('本当にすべてのデータをクリアしますか？この操作は元に戻せません。')) {
-                  clearData();
-                }
-              }}
-              disabled={isProcessing || isWebSpeechRecording}
-              className="flex items-center justify-center gap-2 px-6 py-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 shadow-sm hover:shadow-md min-h-[56px] font-medium"
-            >
-              <Trash2 size={20} />
-              <span>🗑️ すべてのデータをクリア</span>
-            </button>
-          </div>
+          )}
         </div>
+      </div>
 
-        {/* フッター */}
-        <div className="text-center text-gray-500 pt-6 border-t border-gray-200">
-          <p className="text-sm">🚀 Powered by Gemini AI • 効率的な店舗視察をサポート</p>
-        </div>
+      {/* カメラボタン */}
+      <div className="fixed bottom-6 left-6 z-50">
+        <button
+          onClick={() => {
+            capturePhoto().catch(error => {
+              console.error('📸 ボタンクリックエラー:', error);
+              alert(`写真撮影でエラーが発生しました: ${error.message || '不明なエラー'}`);
+            });
+          }}
+          disabled={isAnalyzing || isProcessing}
+          className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
+            isAnalyzing 
+              ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
+              : 'bg-red-100 hover:bg-red-200 hover:scale-110 border-red-700'
+          } ${isProcessing || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''} text-red-900`}
+          title={isAnalyzing ? 'AI解析中...' : '写真撮影'}
+        >
+          {isAnalyzing ? <Camera size={24} className="animate-pulse" /> : <Camera size={24} />}
+        </button>
       </div>
     </div>
   );
