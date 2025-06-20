@@ -815,7 +815,7 @@ function App() {
         {/* ヘッダー */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            🏪 店舗視察アプリ
+            🏪 店舗視察AI
           </h1>
           <p className="text-gray-600 text-lg">
             音声・写真で店舗情報を効率的に収集・分析
