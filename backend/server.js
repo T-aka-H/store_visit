@@ -14,17 +14,19 @@ const PORT = process.env.PORT || 3001;
 // Gemini AI インスタンス
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ミドルウェア
+// CORS設定
 app.use(cors({
   origin: [
-    'https://store-visit-cr9p.onrender.com',  // 正しいフロントエンドURL
+    'https://store-visit-cr9p.onrender.com',  // 本番環境
     'http://localhost:3000',                   // 開発環境
     'http://localhost:3001'                    // 開発環境
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
+
+// その他のミドルウェア
 app.use(express.json({ limit: '50mb' }));  // 写真アップロード用に制限を緩和
 app.use(express.static('public'));
 
