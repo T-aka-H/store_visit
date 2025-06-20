@@ -10,10 +10,7 @@ import {
   ListTree,
   HelpCircle,
   Camera,
-  Image,
-  X,
-  Eye,
-  MapPin
+  X
 } from 'lucide-react';
 
 // API設定
@@ -32,15 +29,6 @@ const formatFileSize = (bytes) => {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / 1048576).toFixed(1) + ' MB';
-};
-
-// カテゴリ名の日英対応
-const CATEGORY_MAPPING = {
-  '価格情報': 'price_info',
-  '売り場情報': 'layout_info',
-  '客層・混雑度': 'customer_info',
-  '商品・品揃え': 'product_info',
-  '店舗環境': 'environment_info'
 };
 
 // AI分類実行関数
@@ -216,15 +204,11 @@ const ClassificationTable = ({ category, items }) => {
 
 // 写真撮影コンポーネント
 const PhotoCapture = ({ 
-  onPhotoAdded, 
-  categories, 
-  setCategories, 
-  isProcessing, 
-  storeName, 
   photos, 
   setPhotos, 
   downloadPhoto,
-  downloadAllPhotos
+  downloadAllPhotos,
+  isProcessing
 }) => {
   return (
     <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -246,7 +230,7 @@ const PhotoCapture = ({
           <span className="font-medium text-red-800 text-sm">写真撮影機能</span>
         </div>
         <p className="text-red-700 text-xs mb-2">
-          左下の赤いカメラボタンで写真撮影が可能です。AIが自動で内容を分析・分類します。
+          左下の赤いカメラボタンで写真撮影が可能です。
         </p>
       </div>
 
@@ -376,17 +360,9 @@ function App() {
     { name: '店舗環境', items: [] }
   ]);
   const [transcript, setTranscript] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [insights, setInsights] = useState('');
-  const [questionInput, setQuestionInput] = useState('');
-  const [qaPairs, setQaPairs] = useState([]);
-  const [isAnswering, setIsAnswering] = useState(false);
-  const [showTextInput, setShowTextInput] = useState(false);
   const [isWebSpeechSupported, setIsWebSpeechSupported] = useState(false);
   const [isWebSpeechRecording, setIsWebSpeechRecording] = useState(false);
-  const [textInput, setTextInput] = useState('');
-  const [uploadedAudio, setUploadedAudio] = useState(null);
   const [showHelp, setShowHelp] = useState(false);
   
   const recognitionRef = useRef(null);
@@ -448,14 +424,279 @@ function App() {
       const responseTime = Date.now() - startTime;
       
       if (response.ok) {
-        const data = await response.json();
         setBackendStatus('ready');
         setLastStatusCheck(new Date());
         console.log(`✅ AI機能準備完了 (${responseTime}ms)`);
-        return { success: true, responseTime, data };
+        return { success: true, responseTime };
       } else {
         throw new Error(`Status: ${response.status}`);
       }
+    } catch (error) {
+      console.error('❌ AIシステムエラー:', error);
+      setBackendStatus('error');
+      return { success: false, error: error.message };
+    }
+  };
+
+  // ページロード時の自動チェック
+  useEffect(() => {
+    checkBackendStatus();
+    
+    // 定期的なヘルスチェック（5分間隔）
+    const interval = setInterval(checkBackendStatus, 5 * 60 * 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // API呼び出し前のステータスチェック
+  const performAIClassificationWithStatusCheck = async (text, categories, setCategories) => {
+    if (backendStatus !== 'ready') {
+      const statusResult = await checkBackendStatus();
+      if (!statusResult.success) {
+        alert('AI機能に接続できません。しばらく待ってから再試行してください。');
+        return;
+      }
+    }
+    
+    return performAIClassification(text, categories, setCategories);
+  };
+
+  // ステータス表示コンポーネント
+  const BackendStatusIndicator = () => {
+    const getStatusConfig = () => {
+      switch (backendStatus) {
+        case 'checking':
+          return {
+            color: 'bg-yellow-100 border-yellow-400 text-yellow-800',
+            icon: '🤖',
+            title: 'AIを準備しています',
+            message: 'AI機能の準備中です。少々お待ちください...',
+            showSpinner: true
+          };
+        case 'ready':
+          return {
+            color: 'bg-green-100 border-green-400 text-green-800',
+            icon: '✅',
+            title: 'AIの準備が整いました',
+            message: lastStatusCheck ? 
+              `最終確認: ${lastStatusCheck.toLocaleTimeString()}` : 
+              'すべてのAI機能が利用可能です',
+            showSpinner: false
+          };
+        case 'error':
+          return {
+            color: 'bg-red-100 border-red-400 text-red-800',
+            icon: '❌',
+            title: 'AI機能に接続できません',
+            message: 'しばらく時間をおいてから再試行してください',
+            showSpinner: false
+          };
+        default:
+          return {
+            color: 'bg-gray-100 border-gray-400 text-gray-800',
+            icon: '❓',
+            title: 'AI状態確認中',
+            message: 'AI機能の状態を確認しています',
+            showSpinner: false
+          };
+      }
+    };
+
+    const config = getStatusConfig();
+
+    return (
+      <div className={`mb-4 p-3 rounded-lg border ${config.color} transition-all duration-300`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{config.icon}</span>
+            <div>
+              <div className="font-medium text-sm flex items-center gap-2">
+                {config.title}
+                {config.showSpinner && (
+                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                )}
+              </div>
+              <div className="text-xs opacity-75">
+                {config.message}
+              </div>
+            </div>
+          </div>
+          
+          <button
+            onClick={checkBackendStatus}
+            disabled={backendStatus === 'checking'}
+            className="text-xs px-2 py-1 rounded bg-white bg-opacity-50 hover:bg-opacity-75 transition-all duration-200 disabled:opacity-50"
+            title="手動でAI状態を再確認"
+          >
+            🔄 再確認
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // 音声録音機能
+  const toggleRecording = () => {
+    if (!isWebSpeechSupported) {
+      alert('お使いのブラウザは音声認識に対応していません');
+      return;
+    }
+
+    if (isWebSpeechRecording) {
+      recognitionRef.current?.stop();
+      setIsWebSpeechRecording(false);
+    } else {
+      try {
+        recognitionRef.current?.start();
+        setIsWebSpeechRecording(true);
+      } catch (error) {
+        console.error('音声認識開始エラー:', error);
+        alert('音声認識を開始できませんでした');
+      }
+    }
+  };
+
+  // 音声ファイルアップロード機能
+  const handleAudioUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('audio/')) {
+      alert('音声ファイルを選択してください');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('audio', file);
+
+      const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`音声認識エラー: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.transcript) {
+        setTranscript(prev => prev + result.transcript + ' ');
+        alert('音声ファイルの認識が完了しました！');
+      } else {
+        throw new Error('音声認識結果が空でした');
+      }
+    } catch (error) {
+      console.error('音声ファイル処理エラー:', error);
+      alert('音声ファイルの処理に失敗しました');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // AI分類処理
+  const processTranscript = async () => {
+    if (!transcript.trim()) {
+      alert('音声が認識されていません');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await performAIClassificationWithStatusCheck(transcript, categories, setCategories);
+      alert('✅ AI分類が完了しました！');
+    } catch (error) {
+      console.error('分類処理エラー:', error);
+      alert('分類処理に失敗しました');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 写真撮影関数
+  const capturePhoto = async () => {
+    if (isAnalyzing || isProcessing) {
+      alert('現在処理中です。しばらくお待ちください。');
+      return;
+    }
+    
+    try {
+      setIsAnalyzing(true);
+      console.log('📷 写真撮影開始');
+      
+      const file = await new Promise((resolve, reject) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.capture = 'environment';
+        
+        input.onchange = (event) => {
+          const files = event.target.files;
+          if (files && files.length > 0) {
+            resolve(files[0]);
+          } else {
+            reject(new Error('ファイルが選択されませんでした'));
+          }
+        };
+        
+        input.click();
+      });
+
+      if (!file) {
+        throw new Error('ファイルが選択されませんでした');
+      }
+      
+      // 画像をBase64に変換
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target.result);
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(file);
+      });
+
+      // 写真データの作成
+      const photoData = {
+        id: Date.now(),
+        base64: base64,
+        timestamp: new Date().toLocaleString('ja-JP'),
+        category: '店舗環境',
+        description: '写真が追加されました',
+        confidence: 0.7
+      };
+
+      setPhotos(prev => [...prev, photoData]);
+      alert('📸 写真を保存しました！');
+
+    } catch (error) {
+      console.error('📸 写真撮影エラー:', error);
+      alert('写真の処理に失敗しました。');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // データクリア機能
+  const clearAllData = () => {
+    if (window.confirm('すべてのデータを削除しますか？この操作は取り消せません。')) {
+      setCategories(prev => prev.map(cat => ({ ...cat, items: [] })));
+      setTranscript('');
+      setPhotos([]);
+      alert('すべてのデータが削除されました');
+    }
+  };
+
+  // 写真ダウンロード機能
+  const downloadPhoto = (photo) => {
+    try {
+      const link = document.createElement('a');
+      link.href = photo.base64;
+      link.download = `store-photo-${photo.id || Date.now()}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
       console.error('写真ダウンロードエラー:', error);
       alert('写真のダウンロードに失敗しました');
@@ -503,20 +744,17 @@ function App() {
     }
   };
 
-  // データエクスポート機能（CSV形式）
+  // データエクスポート機能
   const exportData = () => {
     try {
-      // BOMを追加してExcelで文字化けを防ぐ
       const BOM = '\uFEFF';
       let csvContent = BOM;
       
-      // ヘッダー情報
       csvContent += '店舗視察レポート\n';
       csvContent += `店舗名,${storeName || '未設定'}\n`;
       csvContent += `作成日時,${new Date().toLocaleString('ja-JP')}\n`;
       csvContent += `写真枚数,${photos.length}\n\n`;
 
-      // カテゴリごとのデータ
       categories.forEach(category => {
         if (category.items.length > 0) {
           csvContent += `${category.name}\n`;
@@ -534,13 +772,11 @@ function App() {
         }
       });
 
-      // 音声認識結果
       if (transcript.trim()) {
         csvContent += '音声認識ログ\n';
         csvContent += `"${transcript.replace(/"/g, '""').replace(/\n/g, ' ')}"\n\n`;
       }
 
-      // 写真一覧
       if (photos.length > 0) {
         csvContent += '写真一覧\n';
         csvContent += '撮影日時,カテゴリ,説明,信頼度\n';
@@ -551,12 +787,10 @@ function App() {
         });
       }
 
-      // ファイル名を生成
       const timestamp = new Date().toISOString().slice(0, 10);
       const safeStoreName = (storeName || '未設定').replace(/[\\/:*?"<>|]/g, '_');
       const fileName = `店舗視察_${safeStoreName}_${timestamp}.csv`;
 
-      // Blobを作成してダウンロード
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -614,7 +848,6 @@ function App() {
               <h2 className="text-xl font-semibold text-gray-700">音声入力</h2>
             </div>
 
-            {/* 音声認識UI */}
             <div className="space-y-4">
               <div className="flex items-center gap-4">
                 <button
@@ -653,7 +886,6 @@ function App() {
                 className="w-full h-32 p-3 border rounded-lg resize-none"
               />
 
-              {/* 処理ボタン */}
               <div className="flex gap-4 mt-4">
                 <button
                   onClick={processTranscript}
@@ -676,15 +908,11 @@ function App() {
 
           {/* 写真撮影セクション */}
           <PhotoCapture
-            onPhotoAdded={capturePhoto}
-            categories={categories}
-            setCategories={setCategories}
-            isProcessing={isAnalyzing}
-            storeName={storeName}
             photos={photos}
             setPhotos={setPhotos}
             downloadPhoto={downloadPhoto}
             downloadAllPhotos={downloadAllPhotos}
+            isProcessing={isAnalyzing}
           />
         </div>
 
@@ -806,7 +1034,6 @@ function App() {
                 </h3>
                 <ul className="space-y-2 text-gray-700">
                   <li>• 左下のカメラボタンで写真撮影</li>
-                  <li>• AI解析で内容を自動分類（バックエンド接続時）</li>
                   <li>• 写真の個別ダウンロードやZIP一括保存</li>
                   <li>• 写真ごとに信頼度とカテゴリを表示</li>
                 </ul>
@@ -860,283 +1087,4 @@ function App() {
   );
 }
 
-export default App;error('❌ AIシステムエラー:', error);
-      
-      if (error.name === 'TimeoutError') {
-        setBackendStatus('error');
-        alert('⏰ AI機能の準備に時間がかかっています。\n\nもう一度お試しください。');
-      } else {
-        setBackendStatus('error');
-      }
-      
-      return { success: false, error: error.message };
-    }
-  };
-
-  // ページロード時の自動チェック
-  useEffect(() => {
-    checkBackendStatus();
-    
-    // 定期的なヘルスチェック（5分間隔）
-    const interval = setInterval(checkBackendStatus, 5 * 60 * 1000);
-    
-    return () => clearInterval(interval);
-  }, []);
-
-  // API呼び出し前のステータスチェック
-  const performAIClassificationWithStatusCheck = async (text, categories, setCategories) => {
-    // AI機能がready状態でない場合は先にチェック
-    if (backendStatus !== 'ready') {
-      const statusResult = await checkBackendStatus();
-      if (!statusResult.success) {
-        alert('AI機能に接続できません。しばらく待ってから再試行してください。');
-        return;
-      }
-    }
-    
-    // 元のAI分類処理を実行
-    return performAIClassification(text, categories, setCategories);
-  };
-
-  // ステータス表示コンポーネント
-  const BackendStatusIndicator = () => {
-    const getStatusConfig = () => {
-      switch (backendStatus) {
-        case 'checking':
-          return {
-            color: 'bg-yellow-100 border-yellow-400 text-yellow-800',
-            icon: '🤖',
-            title: 'AIを準備しています',
-            message: 'AI機能の準備中です。少々お待ちください...',
-            showSpinner: true
-          };
-        case 'ready':
-          return {
-            color: 'bg-green-100 border-green-400 text-green-800',
-            icon: '✅',
-            title: 'AIの準備が整いました',
-            message: lastStatusCheck ? 
-              `最終確認: ${lastStatusCheck.toLocaleTimeString()}` : 
-              'すべてのAI機能が利用可能です',
-            showSpinner: false
-          };
-        case 'error':
-          return {
-            color: 'bg-red-100 border-red-400 text-red-800',
-            icon: '❌',
-            title: 'AI機能に接続できません',
-            message: 'しばらく時間をおいてから再試行してください',
-            showSpinner: false
-          };
-        default:
-          return {
-            color: 'bg-gray-100 border-gray-400 text-gray-800',
-            icon: '❓',
-            title: 'AI状態確認中',
-            message: 'AI機能の状態を確認しています',
-            showSpinner: false
-          };
-      }
-    };
-
-    const config = getStatusConfig();
-
-    return (
-      <div className={`mb-4 p-3 rounded-lg border ${config.color} transition-all duration-300`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">{config.icon}</span>
-            <div>
-              <div className="font-medium text-sm flex items-center gap-2">
-                {config.title}
-                {config.showSpinner && (
-                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                )}
-              </div>
-              <div className="text-xs opacity-75">
-                {config.message}
-              </div>
-            </div>
-          </div>
-          
-          <button
-            onClick={checkBackendStatus}
-            disabled={backendStatus === 'checking'}
-            className="text-xs px-2 py-1 rounded bg-white bg-opacity-50 hover:bg-opacity-75 transition-all duration-200 disabled:opacity-50"
-            title="手動でAI状態を再確認"
-          >
-            🔄 再確認
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  // 音声録音機能（Web Speech API版）
-  const toggleRecording = () => {
-    if (!isWebSpeechSupported) {
-      alert('お使いのブラウザは音声認識に対応していません');
-      return;
-    }
-
-    if (isWebSpeechRecording) {
-      recognitionRef.current?.stop();
-      setIsWebSpeechRecording(false);
-    } else {
-      try {
-        recognitionRef.current?.start();
-        setIsWebSpeechRecording(true);
-      } catch (error) {
-        console.error('音声認識開始エラー:', error);
-        alert('音声認識を開始できませんでした');
-      }
-    }
-  };
-
-  // 音声ファイルアップロード機能
-  const handleAudioUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('audio/')) {
-      alert('音声ファイルを選択してください');
-      return;
-    }
-
-    setUploadedAudio(file);
-    setIsProcessing(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('audio', file);
-
-      const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error(`音声認識エラー: ${response.status}`);
-      }
-
-      const result = await response.json();
-      
-      if (result.transcript) {
-        setTranscript(prev => prev + result.transcript + ' ');
-        alert('音声ファイルの認識が完了しました！');
-      } else {
-        throw new Error('音声認識結果が空でした');
-      }
-    } catch (error) {
-      console.error('音声ファイル処理エラー:', error);
-      alert('音声ファイルの処理に失敗しました');
-    } finally {
-      setIsProcessing(false);
-      setUploadedAudio(null);
-    }
-  };
-
-  // AI分類処理
-  const processTranscript = async () => {
-    if (!transcript.trim()) {
-      alert('音声が認識されていません');
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      await performAIClassificationWithStatusCheck(transcript, categories, setCategories);
-      alert('✅ AI分類が完了しました！');
-    } catch (error) {
-      console.error('分類処理エラー:', error);
-      alert('分類処理に失敗しました');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // 写真撮影関数（簡略版）
-  const capturePhoto = async () => {
-    if (isAnalyzing || isProcessing) {
-      alert('現在処理中です。しばらくお待ちください。');
-      return;
-    }
-    
-    try {
-      setIsAnalyzing(true);
-      console.log('📷 写真撮影開始');
-      
-      const file = await new Promise((resolve, reject) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.capture = 'environment';
-        
-        input.onchange = (event) => {
-          const files = event.target.files;
-          if (files && files.length > 0) {
-            resolve(files[0]);
-          } else {
-            reject(new Error('ファイルが選択されませんでした'));
-          }
-        };
-        
-        input.click();
-      });
-
-      if (!file) {
-        throw new Error('ファイルが選択されませんでした');
-      }
-      
-      // 画像をBase64に変換
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (event) => resolve(event.target.result);
-        reader.onerror = (error) => reject(error);
-        reader.readAsDataURL(file);
-      });
-
-      // 写真データの作成
-      const photoData = {
-        id: Date.now(),
-        base64: base64,
-        timestamp: new Date().toLocaleString('ja-JP'),
-        category: '店舗環境',
-        description: '写真が追加されました',
-        confidence: 0.7
-      };
-
-      setPhotos(prev => [...prev, photoData]);
-      alert('📸 写真を保存しました！');
-
-    } catch (error) {
-      console.error('📸 写真撮影エラー:', error);
-      alert('写真の処理に失敗しました。');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  // データクリア機能
-  const clearAllData = () => {
-    if (window.confirm('すべてのデータを削除しますか？この操作は取り消せません。')) {
-      setCategories(prev => prev.map(cat => ({ ...cat, items: [] })));
-      setTranscript('');
-      setInsights('');
-      setQaPairs([]);
-      setPhotos([]);
-      alert('すべてのデータが削除されました');
-    }
-  };
-
-  // 写真ダウンロード機能
-  const downloadPhoto = (photo) => {
-    try {
-      const link = document.createElement('a');
-      link.href = photo.base64;
-      link.download = `store-photo-${photo.id || Date.now()}.jpg`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.
+export default App;
