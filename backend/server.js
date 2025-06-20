@@ -583,12 +583,41 @@ ${text.trim()}
         try {
           parsedResult = JSON.parse(content);
         } catch (initialParseError) {
-          // 失敗した場合、JSONパターンを探して抽出を試みる
-          const jsonMatch = content.match(/\{[\s\S]*?\}/);
+          console.log('初期JSON解析失敗、クリーニング処理を開始');
+          
+          // 最も外側の波括弧を含む部分を抽出
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (!jsonMatch) {
             throw new Error('Gemini応答からJSONを抽出できませんでした');
           }
-          parsedResult = JSON.parse(jsonMatch[0]);
+          
+          let cleanedJson = jsonMatch[0];
+          
+          // JSONクリーニング処理
+          cleanedJson = cleanedJson
+            // コメントの削除
+            .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '')
+            // 末尾のカンマを削除（オブジェクトと配列の両方に対応）
+            .replace(/,(\s*[\]}])/g, '$1')
+            // 無効な制御文字を削除
+            .replace(/[\x00-\x1F\x7F-\x9F]/g, '')
+            // 複数の空白を単一の空白に置換
+            .replace(/\s+/g, ' ')
+            // 文字列内の改行を適切にエスケープ
+            .replace(/(?<!\\)\\n/g, '\\n')
+            // 不正な引用符を修正
+            .replace(/[""]/g, '"')
+            // バックスラッシュの適切なエスケープ
+            .replace(/\\/g, '\\\\')
+            .replace(/\\\\/g, '\\');
+
+          try {
+            console.log('クリーニング済みJSON:', cleanedJson);
+            parsedResult = JSON.parse(cleanedJson);
+          } catch (cleaningError) {
+            console.error('クリーニング後のJSON解析エラー:', cleaningError);
+            throw new Error('JSONクリーニング後も解析に失敗しました: ' + cleaningError.message);
+          }
         }
 
         if (parsedResult.classifications && Array.isArray(parsedResult.classifications)) {
