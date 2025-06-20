@@ -1,5 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Upload, Trash2, MessageCircle, Brain, HelpCircle, Download, ListTree, Camera, Image, X, Eye, MapPin } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  Mic, 
+  MicOff, 
+  Upload, 
+  Download, 
+  Trash2, 
+  Brain,
+  MessageCircle,
+  ListTree,
+  HelpCircle,
+  Camera,
+  Image,
+  X,
+  Eye,
+  MapPin
+} from 'lucide-react';
+import PhotoCapture from './components/PhotoCapture';
+import ClassificationTable from './components/ClassificationTable';
+import BackendStatusIndicator from './components/BackendStatusIndicator';
 
 // API設定
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
@@ -1244,139 +1262,84 @@ function App() {
           />
         </div>
 
+        {/* AI機能ステータス表示 */}
+        <BackendStatusIndicator />
+
         {/* メイン機能エリア */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* 左側: 音声録音・テキスト入力 */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              🎤 音声・テキスト入力
-            </h2>
-
-            {/* 音声録音ボタン */}
-            <div className="mb-4">
-              <button
-                onClick={toggleRecording}
-                disabled={isProcessing}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
-                  isWebSpeechRecording
-                    ? 'bg-red-500 text-white hover:bg-red-600'
-                    : 'bg-blue-500 text-white hover:bg-blue-600'
-                } disabled:opacity-50`}
-              >
-                {isWebSpeechRecording ? (
-                  <>
-                    <MicOff size={20} />
-                    録音停止
-                  </>
-                ) : (
-                  <>
-                    <Mic size={20} />
-                    音声録音開始
-                  </>
-                )}
-              </button>
-              {!isWebSpeechSupported && (
-                <p className="text-red-500 text-xs mt-2">
-                  お使いのブラウザは音声認識に対応していません
-                </p>
-              )}
+          {/* 音声入力セクション */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+            <div className="flex items-center gap-2 mb-4">
+              <MessageCircle className="text-gray-400" size={24} />
+              <h2 className="text-xl font-semibold text-gray-700">音声入力</h2>
             </div>
 
-            {/* 音声ファイルアップロード */}
-            <div className="mb-4">
-              <label className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 transition-colors duration-200">
-                <Upload size={20} />
-                音声ファイルアップロード
+            {/* 音声認識UI */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={toggleRecording}
+                  disabled={isProcessing}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors duration-200 ${
+                    isRecording
+                      ? 'bg-red-500 text-white hover:bg-red-600'
+                      : 'bg-blue-500 text-white hover:bg-blue-600'
+                  } disabled:opacity-50`}
+                >
+                  {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+                  {isRecording ? '録音停止' : '録音開始'}
+                </button>
+
                 <input
                   type="file"
                   accept="audio/*"
                   onChange={handleAudioUpload}
                   className="hidden"
-                  disabled={isProcessing}
+                  id="audio-upload"
                 />
-              </label>
-            </div>
-
-            {/* テキスト直接入力 */}
-            <div className="mb-4">
-              <button
-                onClick={() => setShowTextInput(!showTextInput)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200"
-              >
-                <MessageCircle size={20} />
-                テキスト直接入力
-              </button>
-              
-              {showTextInput && (
-                <div className="mt-3 space-y-2">
-                  <textarea
-                    value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    placeholder="ここに直接テキストを入力してください..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    rows="3"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={addTextInput}
-                      className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
-                    >
-                      追加
-                    </button>
-                    <button
-                      onClick={() => {
-                        setTextInput('');
-                        setShowTextInput(false);
-                      }}
-                      className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-                    >
-                      キャンセル
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 認識されたテキスト表示 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                認識されたテキスト
-              </label>
-              <div className="min-h-[100px] p-3 border border-gray-300 rounded-lg bg-gray-50">
-                {transcript || (
-                  <span className="text-gray-400">
-                    音声録音またはテキスト入力でデータを追加してください
-                  </span>
-                )}
+                <label
+                  htmlFor="audio-upload"
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200 cursor-pointer"
+                >
+                  <Upload size={20} />
+                  音声ファイル
+                </label>
               </div>
-            </div>
 
-            {/* 処理ボタン */}
-            <div className="flex gap-4 mt-4">
-              <button
-                onClick={processTranscript}
-                disabled={!transcript.trim() || isProcessing || backendStatus !== 'ready'}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors duration-200 ${
-                  backendStatus === 'ready' 
-                    ? 'bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50'
-                    : 'bg-gray-400 text-gray-600 cursor-not-allowed'
-                }`}
-              >
-                <Brain size={20} />
-                {isProcessing ? '処理中...' : 
-                 backendStatus === 'checking' ? 'AI準備中...' :
-                 backendStatus === 'error' ? 'AI接続エラー' :
-                 'AI分類実行'}
-              </button>
+              <textarea
+                value={transcript}
+                onChange={(e) => setTranscript(e.target.value)}
+                placeholder="ここに音声認識結果が表示されます..."
+                className="w-full h-32 p-3 border rounded-lg resize-none"
+              />
+
+              {/* 処理ボタン */}
+              <div className="flex gap-4 mt-4">
+                <button
+                  onClick={processTranscript}
+                  disabled={!transcript.trim() || isProcessing || backendStatus !== 'ready'}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors duration-200 ${
+                    backendStatus === 'ready' 
+                      ? 'bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50'
+                      : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                  }`}
+                >
+                  <Brain size={20} />
+                  {isProcessing ? '処理中...' : 
+                   backendStatus === 'checking' ? 'AI準備中...' :
+                   backendStatus === 'error' ? 'AI接続エラー' :
+                   'AI分類実行'}
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* 右側: 写真撮影 */}
+          {/* 写真撮影セクション */}
           <PhotoCapture
             onPhotoAdded={capturePhoto}
             categories={categories}
             setCategories={setCategories}
-            isProcessing={isAnalyzing || isProcessing}
+            isProcessing={isProcessing}
             storeName={storeName}
             photos={photos}
             setPhotos={setPhotos}
@@ -1385,159 +1348,68 @@ function App() {
           />
         </div>
 
-        {/* インサイト・Q&Aセクション */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* インサイト生成 */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
-                💡 AIインサイト
-              </h3>
-              <button
-                onClick={generateInsights}
-                disabled={isProcessing}
-                className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors duration-200"
-              >
-                <Brain size={16} />
-                {isProcessing ? '生成中...' : '生成'}
-              </button>
-            </div>
-            
-            <div className="min-h-[150px] p-4 border border-gray-300 rounded-lg bg-gray-50">
-              {insights || (
-                <span className="text-gray-400">
-                  AIがデータを分析してインサイトを生成します
-                </span>
-              )}
+        {/* 分類結果表示 */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <ListTree className="text-gray-400" size={24} />
+              <h2 className="text-xl font-semibold text-gray-700">分類結果</h2>
             </div>
           </div>
 
-          {/* Q&A機能 */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              ❓ Q&A
-            </h3>
-            
-            <div className="mb-4">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={questionInput}
-                  onChange={(e) => setQuestionInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleQuestionSubmit()}
-                  placeholder="質問を入力してください..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled={isAnswering}
-                />
-                <button
-                  onClick={handleQuestionSubmit}
-                  disabled={!questionInput.trim() || isAnswering}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors duration-200"
-                >
-                  <HelpCircle size={20} />
-                </button>
-              </div>
-            </div>
-
-            <div className="max-h-[200px] overflow-y-auto space-y-3">
-              {qaPairs.map((qa, index) => (
-                <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                  <div className="font-medium text-gray-700 mb-1">
-                    Q: {qa.question}
-                  </div>
-                  <div className="text-gray-600 text-sm mb-1">
-                    A: {qa.answer}
-                  </div>
-                  <div className="text-xs text-gray-400">
-                    {qa.timestamp}
-                  </div>
-                </div>
-              ))}
-              {qaPairs.length === 0 && (
-                <div className="text-center text-gray-400 py-4">
-                  質問を入力してAIに聞いてみましょう
-                </div>
-              )}
-            </div>
-          </div>
+          {categories.map(category => (
+            <ClassificationTable
+              key={category.name}
+              category={category.name}
+              items={category.items}
+            />
+          ))}
         </div>
 
-        {/* 分類結果表示 */}
-        <ClassificationSection categories={categories} />
-
-        {/* データ操作ボタン - 下部の余白を増やして浮動ボタンとの重なりを防ぐ */}
+        {/* データ操作ボタン */}
         <div className="flex justify-center gap-4 mt-8 mb-24">
           <button
             onClick={exportData}
-            disabled={(categories.every(cat => cat.items.length === 0) && !transcript.trim()) || isWebSpeechRecording}
-            className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 shadow-md"
-            title="視察データをCSVファイルとして出力"
+            className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200 flex items-center gap-2"
           >
             <Download size={20} />
-            <span>CSV出力</span>
+            データ出力
           </button>
-          
+
           <button
-            onClick={() => {
-              if (window.confirm('本当にすべてのデータをクリアしますか？この操作は元に戻せません。')) {
-                clearAllData();
-              }
-            }}
-            disabled={isProcessing || isWebSpeechRecording}
-            className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 shadow-md"
-            title="すべてのデータを削除"
+            onClick={clearAllData}
+            className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200 flex items-center gap-2"
           >
             <Trash2 size={20} />
-            <span>データクリア</span>
+            データ削除
           </button>
         </div>
-
-        {/* AI機能ステータス表示 */}
-        <BackendStatusIndicator />
       </div>
 
-      {/* カメラボタン */}
-      <div className="fixed bottom-6 left-6 z-50">
-        <button
-          onClick={() => {
-            capturePhoto().catch(error => {
-              console.error('📸 ボタンクリックエラー:', error);
-              alert(`写真撮影でエラーが発生しました: ${error.message || '不明なエラー'}`);
-            });
-          }}
-          disabled={isAnalyzing || isProcessing}
-          className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
-            isAnalyzing 
-              ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
-              : 'bg-red-100 hover:bg-red-200 hover:scale-110 border-red-700'
-          } ${isProcessing || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''} text-red-900`}
-          title={isAnalyzing ? 'AI解析中...' : '写真撮影'}
-        >
-          {isAnalyzing ? <Camera size={24} className="animate-pulse" /> : <Camera size={24} />}
-        </button>
-      </div>
+      {/* ヘルプボタン */}
+      <button
+        onClick={() => setShowHelp(true)}
+        className="fixed bottom-4 right-4 p-4 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 transition-colors duration-200"
+        title="ヘルプを表示"
+      >
+        <HelpCircle size={24} />
+      </button>
 
-      {/* マイクボタン */}
-      <div className="fixed bottom-6 right-6 z-50">
-        {isWebSpeechSupported ? (
-          <button
-            onClick={toggleRecording}
-            disabled={isProcessing}
-            className={`w-16 h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 border-4 ${
-              isWebSpeechRecording 
-                ? 'bg-red-500 hover:bg-red-600 animate-pulse border-red-700' 
-                : 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-blue-700'
-            } ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} text-blue-900`}
-            title={isWebSpeechRecording ? '録音停止' : '音声録音'}
-          >
-            {isWebSpeechRecording ? <MicOff size={24} /> : <Mic size={24} />}
-          </button>
-        ) : (
-          <div className="w-16 h-16 rounded-full shadow-lg flex items-center justify-center bg-gray-400 text-white" title="このブラウザは音声認識に対応していません">
-            <HelpCircle size={24} />
+      {/* ヘルプモーダル */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold mb-4">使い方ガイド</h2>
+            {/* ... ヘルプコンテンツ ... */}
+            <button
+              onClick={() => setShowHelp(false)}
+              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              閉じる
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
