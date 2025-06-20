@@ -584,7 +584,7 @@ ${text.trim()}
           parsedResult = JSON.parse(content);
         } catch (initialParseError) {
           // 失敗した場合、JSONパターンを探して抽出を試みる
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          const jsonMatch = content.match(/\{[\s\S]*?\}/);
           if (!jsonMatch) {
             throw new Error('Gemini応答からJSONを抽出できませんでした');
           }
@@ -780,343 +780,127 @@ app.post('/api/analyze-photo', async (req, res) => {
   }
 });
 
-// APIテスト用のヘルスチェックエンドポイント
+// アップタイム表示用のユーティリティ関数
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / (24 * 60 * 60));
+  const hours = Math.floor((seconds % (24 * 60 * 60)) / (60 * 60));
+  const minutes = Math.floor((seconds % (60 * 60)) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  let result = '';
+  if (days > 0) result += `${days}日 `;
+  if (hours > 0) result += `${hours}時間 `;
+  if (minutes > 0) result += `${minutes}分 `;
+  result += `${secs}秒`;
+  
+  return result;
+}
+
+// 1. 基本的なヘルスチェック
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    geminiApiKeyConfigured: !!process.env.GEMINI_API_KEY,
-    photoStorageCount: photoStorage.getAllPhotos().length,
-    nodeEnv: process.env.NODE_ENV,
-    corsOrigins: [
-      'https://store-visit-cr9p.onrender.com',
-      'http://localhost:3000',
-      'http://localhost:3001'
-    ]
-  });
-});
-
-// 写真解析状況確認用のデバッグエンドポイント
-app.get('/api/debug/photo-analysis', (req, res) => {
+  const startTime = process.hrtime();
+  
   try {
-    const photos = photoStorage.getAllPhotos();
-    res.json({
-      totalPhotos: photos.length,
-      photos: photos.map(photo => ({
-        id: photo.id,
-        timestamp: photo.timestamp,
-        classificationsCount: photo.classifications?.length || 0,
-        hasProcessedImage: !!photo.processedImage?.data,
-        analysisCategories: photo.analysis?.categories?.map(c => c.category) || []
-      })),
+    // サーバーの基本情報を取得
+    const healthData = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
+      },
+      version: '1.0.0',
       geminiApiKeyConfigured: !!process.env.GEMINI_API_KEY,
-      environment: process.env.NODE_ENV,
-      cors: {
-        allowedOrigins: [
-          'https://store-visit-cr9p.onrender.com',
-          'http://localhost:3000',
-          'http://localhost:3001'
-        ]
-      }
-    });
+      photoStorageCount: photoStorage.getAllPhotos().length
+    };
+
+    // レスポンス時間を計算
+    const [seconds, nanoseconds] = process.hrtime(startTime);
+    const responseTimeMs = (seconds * 1000 + nanoseconds / 1000000).toFixed(2);
+    
+    healthData.responseTime = `${responseTimeMs}ms`;
+    
+    // ヘッダーを設定
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    res.status(200).json(healthData);
+    
+    console.log(`✅ ヘルスチェック成功 (${responseTimeMs}ms)`);
+    
   } catch (error) {
-    res.status(500).json({ 
+    console.error('❌ ヘルスチェックエラー:', error);
+    
+    res.status(500).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
       error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      uptime: process.uptime()
     });
   }
 });
 
-// 写真一覧取得API
-app.get('/api/photos', (req, res) => {
+// 2. 詳細なヘルスチェック
+app.get('/api/health/detailed', (req, res) => {
   try {
-    const photos = photoStorage.getAllPhotos().map(photo => ({
-      id: photo.id,
-      timestamp: photo.timestamp,
-      analysis: photo.analysis,
-      thumbnail: photo.processedImage.data
-    }));
-
-    res.json({ photos });
-  } catch (error) {
-    console.error('写真一覧取得エラー:', error);
-    res.status(500).json({
-      error: '写真一覧の取得に失敗しました',
-      details: error.message
-    });
-  }
-});
-
-// 写真削除API
-app.delete('/api/photos/:id', (req, res) => {
-  try {
-    const { id } = req.params;
-    const deleted = photoStorage.deletePhoto(id);
-
-    if (deleted) {
-      res.json({ message: '写真を削除しました', id });
-    } else {
-      res.status(404).json({ error: '写真が見つかりません', id });
-    }
-  } catch (error) {
-    console.error('写真削除エラー:', error);
-    res.status(500).json({
-      error: '写真の削除に失敗しました',
-      details: error.message
-    });
-  }
-});
-
-// 写真データのエクスポートエンドポイントを更新
-app.post('/api/export-photos', async (req, res) => {
-  try {
-    const { photoIds } = req.body;
+    const memoryUsage = process.memoryUsage();
+    const cpuUsage = process.cpuUsage();
     
-    // 指定されたIDの写真を取得
-    let targetPhotos = [];
-    if (photoIds && Array.isArray(photoIds)) {
-      targetPhotos = photoIds.map(id => photoStorage.getPhoto(id)).filter(Boolean);
-    } else {
-      targetPhotos = photoStorage.getAllPhotos();
-    }
-
-    if (targetPhotos.length === 0) {
-      return res.status(400).json({ error: 'エクスポートする写真がありません' });
-    }
-
-    // 写真のメタデータを準備
-    const metadata = targetPhotos.map(photo => ({
-      id: photo.id,
-      filename: `store_visit_photo_${photo.id}.jpg`,
-      timestamp: photo.timestamp,
-      categories: photo.analysis.categories.map(c => c.category).join(', '),
-      description: photo.analysis.description
-    }));
-
-    // 写真データを準備
-    const photoFiles = targetPhotos.map(photo => ({
-      filename: `store_visit_photo_${photo.id}.jpg`,
-      data: photo.processedImage.data
-    }));
-
-    res.json({
-      message: '写真データを出力しました',
-      metadata: metadata,
-      photos: photoFiles,
-      total_photos: targetPhotos.length
-    });
-
-  } catch (error) {
-    console.error('写真エクスポートエラー:', error);
-    res.status(500).json({ 
-      error: '写真のエクスポート中にエラーが発生しました',
-      details: error.message
-    });
-  }
-});
-
-// CSVエクスポートAPI（新規追加）
-app.post('/api/export-csv', async (req, res) => {
-  try {
-    const { classifications, storeName, includePhotos } = req.body;
-    
-    if (!classifications || !Array.isArray(classifications)) {
-      return res.status(400).json({ error: '分類データが必要です' });
-    }
-
-    // 写真データを取得（必要に応じて）
-    let photos = [];
-    if (includePhotos) {
-      photos = photoStorage.getAllPhotos().map(photo => ({
-        id: photo.id,
-        timestamp: photo.timestamp,
-        category: photo.analysis.category,
-        description: photo.analysis.description
-      }));
-    }
-
-    // CSV形式に変換
-    const csvData = convertToCSVFormat(classifications, storeName, photos);
-    
-    res.json({
-      message: 'CSVデータを生成しました',
-      csvData: csvData,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('CSVエクスポートエラー:', error);
-    res.status(500).json({ 
-      error: 'CSVエクスポート中にエラーが発生しました',
-      details: error.message
-    });
-  }
-});
-
-// 簡略化された写真ダウンロードAPI
-app.get('/api/photos/:id/download', (req, res) => {
-  try {
-    const { id } = req.params;
-    const photo = photoStorage.getPhoto(id);
-
-    if (!photo) {
-      return res.status(404).json({ error: '写真が見つかりません' });
-    }
-
-    // 画像データのみを返す（JSONファイル削除）
-    const imageData = photo.processedImage.data.split('base64,')[1];
-    const imageBuffer = Buffer.from(imageData, 'base64');
-
-    // 直接画像ファイルとして返す
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Content-Disposition', `attachment; filename="store_photo_${id}.jpg"`);
-    res.send(imageBuffer);
-
-  } catch (error) {
-    console.error('写真ダウンロードエラー:', error);
-    res.status(500).json({ 
-      error: '写真のダウンロードに失敗しました',
-      details: error.message
-    });
-  }
-});
-
-// 一括ダウンロードAPI（簡略化）
-app.post('/api/photos/download-multiple', (req, res) => {
-  try {
-    const { photoIds } = req.body;
-    
-    let targetPhotos = [];
-    if (photoIds && Array.isArray(photoIds)) {
-      targetPhotos = photoIds.map(id => photoStorage.getPhoto(id)).filter(Boolean);
-    } else {
-      targetPhotos = photoStorage.getAllPhotos();
-    }
-
-    if (targetPhotos.length === 0) {
-      return res.status(400).json({ error: 'ダウンロードする写真がありません' });
-    }
-
-    const archive = archiver('zip', { zlib: { level: 6 } }); // 圧縮レベル下げて高速化
-    res.attachment('store_photos.zip');
-    archive.pipe(res);
-
-    // 写真のみをZIPに追加（メタデータファイル削除）
-    targetPhotos.forEach((photo, index) => {
-      const imageData = photo.processedImage.data.split('base64,')[1];
-      const imageBuffer = Buffer.from(imageData, 'base64');
-      archive.append(imageBuffer, { name: `store_photo_${index + 1}.jpg` });
-    });
-
-    archive.finalize();
-
-  } catch (error) {
-    console.error('一括ダウンロードエラー:', error);
-    res.status(500).json({ 
-      error: '写真のダウンロードに失敗しました',
-      details: error.message 
-    });
-  }
-});
-
-// Gemini 1.5 Flash専用音声認識API（音声ファイルアップロード用）
-app.post('/api/transcribe-audio-gemini', upload.single('audio'), async (req, res) => {
-  try {
-    console.log('=== Gemini音声ファイル認識開始 ===');
-    
-    if (!req.file) {
-      return res.status(400).json({ error: '音声ファイルが必要です' });
-    }
-
-    console.log('アップロードファイル情報:', {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size
-    });
-
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ 
-        error: 'Gemini APIキーが設定されていません' 
-      });
-    }
-
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const base64Audio = bufferToBase64(req.file.buffer);
-
-      const prompt = `この音声ファイルを正確に日本語のテキストに変換してください。
-      
-音声の内容は店舗視察に関するものです。以下の点に注意して文字起こしを行ってください：
-
-1. 店舗名、ブランド名は正確に
-2. 価格情報（○○円など）は数字を含めて正確に
-3. 商品名、カテゴリ名は具体的に
-4. 話し手の感想や評価も含める
-5. 聞き取りにくい部分は [不明瞭] と記載
-
-文字起こししたテキストのみを返してください。`;
-
-      const result = await model.generateContent([
-        { text: prompt },
-        {
-          inlineData: {
-            mimeType: req.file.mimetype,
-            data: base64Audio
-          }
-        }
-      ]);
-
-      const response = await result.response;
-      const transcribedText = response.text().trim();
-
-      console.log('Gemini音声認識結果:', transcribedText);
-
-      if (!transcribedText || transcribedText.length < 3) {
-        return res.status(400).json({
-          error: '音声から文字起こしできませんでした',
-          details: '音声が不明瞭、または対応していない形式の可能性があります'
-        });
-      }
-
-      res.json({
-        transcript: transcribedText,
-        source: 'gemini-1.5-flash',
-        fileInfo: {
-          name: req.file.originalname,
-          size: req.file.size,
-          type: req.file.mimetype
+    const detailedHealth = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      server: {
+        uptime: {
+          seconds: process.uptime(),
+          formatted: formatUptime(process.uptime())
         },
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (geminiError) {
-      console.error('Gemini音声認識エラー:', geminiError);
-      
-      let errorMessage = 'Gemini音声認識に失敗しました';
-      if (geminiError.message.includes('quota')) {
-        errorMessage = 'Gemini APIの利用制限に達しました';
-      } else if (geminiError.message.includes('invalid')) {
-        errorMessage = '音声ファイル形式がサポートされていません';
+        memory: {
+          rss: Math.round(memoryUsage.rss / 1024 / 1024),
+          heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+          heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+          external: Math.round(memoryUsage.external / 1024 / 1024)
+        },
+        cpu: {
+          user: cpuUsage.user,
+          system: cpuUsage.system
+        },
+        platform: process.platform,
+        nodeVersion: process.version
+      },
+      endpoints: {
+        classify: '/api/classify',
+        analyzePhoto: '/api/analyze-photo',
+        transcribe: '/api/transcribe',
+        insights: '/api/insights',
+        qa: '/api/qa'
+      },
+      gemini: {
+        apiKeyConfigured: !!process.env.GEMINI_API_KEY,
+        model: 'gemini-1.5-flash'
+      },
+      storage: {
+        photos: photoStorage.getAllPhotos().length
       }
-      
-      res.status(500).json({
-        error: errorMessage,
-        details: geminiError.message
-      });
-    }
+    };
 
-  } catch (error) {
-    console.error('=== 音声ファイル処理エラー ===');
-    console.error('エラー:', error);
+    res.status(200).json(detailedHealth);
     
+  } catch (error) {
+    console.error('❌ 詳細ヘルスチェックエラー:', error);
     res.status(500).json({
-      error: '音声ファイル処理エラー',
-      details: error.message
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Gemini API Key configured: ${!!process.env.GEMINI_API_KEY}`);
+  console.log(`🚀 サーバー起動完了: http://localhost:${PORT}`);
+  console.log(`📊 ヘルスチェック: http://localhost:${PORT}/api/health`);
+  console.log(`🕐 起動時刻: ${new Date().toLocaleString('ja-JP')}`);
+  console.log(`🔑 Gemini API Key: ${process.env.GEMINI_API_KEY ? '設定済み' : '未設定'}`);
 });

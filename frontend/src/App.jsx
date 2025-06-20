@@ -387,8 +387,15 @@ function App() {
   const [isWebSpeechRecording, setIsWebSpeechRecording] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [uploadedAudio, setUploadedAudio] = useState(null);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioChunks, setAudioChunks] = useState([]);
+  const [showHelp, setShowHelp] = useState(false);
   
   const recognitionRef = useRef(null);
+
+  // バックエンドステータス管理の追加
+  const [backendStatus, setBackendStatus] = useState('checking');
+  const [lastStatusCheck, setLastStatusCheck] = useState(null);
 
   // Web Speech API初期化
   useEffect(() => {
@@ -427,6 +434,145 @@ function App() {
       };
     }
   }, []);
+
+  // バックエンドステータスチェック関数
+  const checkBackendStatus = async () => {
+    try {
+      setBackendStatus('checking');
+      console.log('🔍 AIシステムステータスチェック開始');
+      
+      const startTime = Date.now();
+      const response = await fetch(`${API_BASE_URL}/api/health`, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(30000) // 30秒タイムアウト
+      });
+      
+      const responseTime = Date.now() - startTime;
+      
+      if (response.ok) {
+        const data = await response.json();
+        setBackendStatus('ready');
+        setLastStatusCheck(new Date());
+        console.log(`✅ AI機能準備完了 (${responseTime}ms)`);
+        return { success: true, responseTime, data };
+      } else {
+        throw new Error(`Status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('❌ AIシステムエラー:', error);
+      
+      if (error.name === 'TimeoutError') {
+        setBackendStatus('error');
+        alert('⏰ AI機能の準備に時間がかかっています。\n\nもう一度お試しください。');
+      } else {
+        setBackendStatus('error');
+      }
+      
+      return { success: false, error: error.message };
+    }
+  };
+
+  // ページロード時の自動チェック
+  useEffect(() => {
+    checkBackendStatus();
+    
+    // 定期的なヘルスチェック（5分間隔）
+    const interval = setInterval(checkBackendStatus, 5 * 60 * 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // API呼び出し前のステータスチェック
+  const performAIClassificationWithStatusCheck = async (text, categories, setCategories) => {
+    // AI機能がready状態でない場合は先にチェック
+    if (backendStatus !== 'ready') {
+      const statusResult = await checkBackendStatus();
+      if (!statusResult.success) {
+        alert('AI機能に接続できません。しばらく待ってから再試行してください。');
+        return;
+      }
+    }
+    
+    // 元のAI分類処理を実行
+    return performAIClassification(text, categories, setCategories);
+  };
+
+  // ステータス表示コンポーネント
+  const BackendStatusIndicator = () => {
+    const getStatusConfig = () => {
+      switch (backendStatus) {
+        case 'checking':
+          return {
+            color: 'bg-yellow-100 border-yellow-400 text-yellow-800',
+            icon: '🤖',
+            title: 'AIを準備しています',
+            message: 'AI機能の準備中です。少々お待ちください...',
+            showSpinner: true
+          };
+        case 'ready':
+          return {
+            color: 'bg-green-100 border-green-400 text-green-800',
+            icon: '✅',
+            title: 'AIの準備が整いました',
+            message: lastStatusCheck ? 
+              `最終確認: ${lastStatusCheck.toLocaleTimeString()}` : 
+              'すべてのAI機能が利用可能です',
+            showSpinner: false
+          };
+        case 'error':
+          return {
+            color: 'bg-red-100 border-red-400 text-red-800',
+            icon: '❌',
+            title: 'AI機能に接続できません',
+            message: 'しばらく時間をおいてから再試行してください',
+            showSpinner: false
+          };
+        default:
+          return {
+            color: 'bg-gray-100 border-gray-400 text-gray-800',
+            icon: '❓',
+            title: 'AI状態確認中',
+            message: 'AI機能の状態を確認しています',
+            showSpinner: false
+          };
+      }
+    };
+
+    const config = getStatusConfig();
+
+    return (
+      <div className={`mb-4 p-3 rounded-lg border ${config.color} transition-all duration-300`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{config.icon}</span>
+            <div>
+              <div className="font-medium text-sm flex items-center gap-2">
+                {config.title}
+                {config.showSpinner && (
+                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                )}
+              </div>
+              <div className="text-xs opacity-75">
+                {config.message}
+              </div>
+            </div>
+          </div>
+          
+          <button
+            onClick={checkBackendStatus}
+            disabled={backendStatus === 'checking'}
+            className="text-xs px-2 py-1 rounded bg-white bg-opacity-50 hover:bg-opacity-75 transition-all duration-200 disabled:opacity-50"
+            title="手動でAI状態を再確認"
+          >
+            🔄 再確認
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   // 高速化されたAI解析関数
   const analyzePhotoWithGemini = async (base64Image) => {
@@ -798,7 +944,7 @@ function App() {
 
     setIsProcessing(true);
     try {
-      await performAIClassification(transcript, categories, setCategories);
+      await performAIClassificationWithStatusCheck(transcript, categories, setCategories);
       alert('✅ AI分類が完了しました！');
     } catch (error) {
       console.error('分類処理エラー:', error);
@@ -1206,21 +1352,21 @@ function App() {
             </div>
 
             {/* 処理ボタン */}
-            <div className="flex gap-2">
+            <div className="flex gap-4 mt-4">
               <button
                 onClick={processTranscript}
-                disabled={!transcript.trim() || isProcessing}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 transition-colors duration-200"
+                disabled={!transcript.trim() || isProcessing || backendStatus !== 'ready'}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors duration-200 ${
+                  backendStatus === 'ready' 
+                    ? 'bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50'
+                    : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                }`}
               >
                 <Brain size={20} />
-                {isProcessing ? '処理中...' : 'AI分類実行'}
-              </button>
-              
-              <button
-                onClick={() => setTranscript('')}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200"
-              >
-                <Trash2 size={20} />
+                {isProcessing ? '処理中...' : 
+                 backendStatus === 'checking' ? 'AI準備中...' :
+                 backendStatus === 'error' ? 'AI接続エラー' :
+                 'AI分類実行'}
               </button>
             </div>
           </div>
@@ -1345,6 +1491,9 @@ function App() {
             <span>データクリア</span>
           </button>
         </div>
+
+        {/* AI機能ステータス表示 */}
+        <BackendStatusIndicator />
       </div>
 
       {/* カメラボタン */}
