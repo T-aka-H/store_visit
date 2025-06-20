@@ -28,6 +28,15 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));  // 写真アップロード用に制限を緩和
 app.use(express.static('public'));
 
+// ルートパスでの基本応答を追加
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'Store Visit AI Backend is running',
+        status: 'OK',
+        timestamp: new Date().toISOString()
+    });
+});
+
 // ファイルアップロード設定
 const storage = multer.memoryStorage();
 const upload = multer({ 
