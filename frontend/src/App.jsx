@@ -139,83 +139,7 @@ const performLocalClassification = (text, categories, setCategories) => {
 };
 
 // 分類結果テーブルコンポーネント
-const ClassificationTable = ({ category, items }) => {
-  return (
-    <div className="mb-6">
-      <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-        📋 {category}
-        <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">
-          {items.length}件
-        </span>
-      </h3>
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  コメント
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  信頼度
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  記録時刻
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  種別
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {items.map((item, index) => (
-                <tr key={item.id || index} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm text-gray-900 max-w-md">
-                    <div className="break-words">
-                      {item.text}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
-                      item.confidence >= 0.8 ? 'bg-green-100 text-green-700' :
-                      item.confidence >= 0.6 ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {Math.round((item.confidence || 0) * 100)}%
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {item.timestamp}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
-                      item.isPhoto ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                    }`}>
-                      {item.isPhoto ? '📸 写真' : '🎤 音声'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan="4" className="px-4 py-8 text-center text-gray-500">
-                    <div className="flex flex-col items-center">
-                      <span className="text-2xl mb-2">📝</span>
-                      <p className="text-sm font-medium">データがありません</p>
-                      <p className="text-xs text-gray-400">
-                        音声録音や写真撮影で情報を追加してください
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
+// ... 削除: ClassificationTableコンポーネントの定義を削除 ...
 
 // 写真撮影コンポーネント
 const PhotoCapture = ({ 
@@ -350,21 +274,6 @@ const PhotoCapture = ({
           </p>
         </div>
       )}
-    </div>
-  );
-};
-
-// 分類セクションコンポーネント
-const ClassificationSection = ({ categories }) => {
-  return (
-    <div className="mt-8">
-      {categories.map(category => (
-        <ClassificationTable
-          key={category.name}
-          category={category.name}
-          items={category.items}
-        />
-      ))}
     </div>
   );
 };
